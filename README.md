@@ -13,6 +13,10 @@ mistakes, the checkpoints, and the fixes — not just the final result. See
 **New here? Start with [`GETTING_STARTED.md`](./GETTING_STARTED.md)** — it
 walks through the repo in build order, not evidence order.
 
+## Demo
+
+[![Watch the demo](demo_thumbnail.png)](https://www.youtube.com/watch?v=zMiapx4Xpqk)
+
 ## Highlights
 
 - **Discrete LQR + PID cascade**, gain-scheduled across three trim points
