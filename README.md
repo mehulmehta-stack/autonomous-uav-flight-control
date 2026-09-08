@@ -1,9 +1,9 @@
 # Autonomous UAV Flight Control — C172P
 
-A fixed-wing flight control and navigation stack built around a JSBSim/Simulink
+A fixed-wing flight control and navigation stack built around JSBSim/Simulink
 Software-in-the-Loop C172P model: gain-scheduled discrete LQR attitude control,
 PID outer loops, a 9-state INS/GPS Extended Kalman Filter, L1 lateral guidance,
-and a requirements-based verification process modeled on the practices used in
+and a requirements-based verification process modelled on the practices used in
 certified aerospace flight software development.
 
 This repository documents the complete engineering process — including the
@@ -28,7 +28,7 @@ walks through the repo in build order, not evidence order.
 - **L1 lateral guidance** integrated into a closed-loop EKF → L1 → LQR →
   actuator chain, demonstrated over an 800-second multi-waypoint mission.
 - **Actuator dynamics** (rate limiter + first-order lag) added and verified
-  after characterizing a real problem — a single-timestep elevator command
+  after characterising a real problem — a single-timestep elevator command
   spike to near-saturation during GPS reacquisition — not added speculatively.
 - **Auto-generated C code from the final controller, SIL-verified against
   native Simulink** to within 0.0051% across all three control outputs
@@ -76,7 +76,7 @@ requirements.md    (see docs/) — the primary verification traceability table
 
 ## Toolchain
 
-MATLAB/Simulink, JSBSim, FlightGear (visualization), Python (EKF prototyping,
+MATLAB/Simulink, JSBSim, FlightGear (visualisation), Python (EKF prototyping,
 analysis).
 
 ## Verification methodology
