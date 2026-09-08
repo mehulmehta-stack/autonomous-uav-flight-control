@@ -1,0 +1,1329 @@
+CONTROLS ROADMAP — STANDARDS AWARENESS DEEP READ
+=========================================================
+
+Purpose
+-------
+Detailed revision notes for the three remaining reading tasks:
+1. DO-178C — DAL A through E, objectives, assurance logic, and flight-software relevance.
+2. Ansys SCADE Suite — model-based safety-critical software development and qualified code generation.
+3. Polyspace — Bug Finder and Code Prover, their differences, and their role in code verification.
+
+IMPORTANT:
+This is an engineering-awareness document, NOT a claim that the C172P project is
+DO-178C compliant or certified.
+
+======================================================================
+PART I — DO-178C FROM FIRST PRINCIPLES
+======================================================================
+
+1. WHAT PROBLEM DOES DO-178C SOLVE?
+-----------------------------------
+
+A flight-control computer can contain software that compiles correctly, passes
+some functional tests, and still contain a defect that could contribute to an
+aircraft accident.
+
+Therefore the aerospace question is not only:
+
+    "Does the software work?"
+
+It is:
+
+    "Can we produce objective evidence that the software was developed,
+     verified, controlled, and changed with a rigor appropriate to the
+     consequences of its failure?"
+
+DO-178C is RTCA's "Software Considerations in Airborne Systems and Equipment
+Certification." EUROCAE publishes the corresponding ED-12C standard.
+
+The FAA recognizes DO-178C/ED-12C through AC 20-115D as an acceptable means,
+but not the only means, of showing compliance for the software aspects of
+airborne systems in certification.
+
+DO-178C is objective-oriented. It specifies what assurance objectives must be
+satisfied and what evidence/processes support them. It does not prescribe one
+programming language or one toolchain.
+
+It is therefore NOT simply:
+- a coding standard,
+- a testing standard,
+- a "safe C" manual,
+- or an automatic certificate.
+
+----------------------------------------------------------------------
+2. FIRST PRINCIPLE: FAILURE CONSEQUENCE DETERMINES RIGOR
+----------------------------------------------------------------------
+
+Compare:
+
+A) In-flight entertainment software.
+   If it fails, passengers may be annoyed but the aircraft can remain safe.
+
+B) Flight-control software.
+   If it fails, aircraft stability, controllability, navigation, or crew
+   workload could be affected.
+
+The two functions should not require identical assurance effort.
+
+DO-178C therefore uses five software levels:
+
+    DAL A — Catastrophic
+    DAL B — Hazardous / Severe-Major
+    DAL C — Major
+    DAL D — Minor
+    DAL E — No Safety Effect
+
+The level is derived from the system safety/development-assurance process.
+A software developer does not simply choose a DAL because a program "looks
+important."
+
+----------------------------------------------------------------------
+3. WHAT DOES DAL MEAN?
+----------------------------------------------------------------------
+
+DAL = Development Assurance Level.
+
+For software, "Software Level" is also commonly used.
+
+The central idea is:
+
+    greater consequence of failure
+              ↓
+    higher assurance level
+              ↓
+    more applicable objectives
+              ↓
+    more rigorous verification/evidence
+              ↓
+    greater use of independent verification at higher levels
+
+This is graduated assurance.
+
+It does NOT mean:
+
+    "DAL A code is inherently better code than DAL D code."
+
+It means:
+
+    "DAL A requires more evidence and rigor because failure consequences
+     are more severe."
+
+----------------------------------------------------------------------
+4. THE FIVE LEVELS — QUICK TABLE
+----------------------------------------------------------------------
+
++-------+----------------------------+-------------+
+| Level | Failure condition          | Objectives  |
++-------+----------------------------+-------------+
+| A     | Catastrophic               | 71          |
+| B     | Hazardous / Severe-Major   | 69          |
+| C     | Major                      | 62          |
+| D     | Minor                      | 26          |
+| E     | No safety effect           | 0           |
++-------+----------------------------+-------------+
+
+These are the commonly cited DO-178C objective counts.
+
+Ansys summarizes the same progression and explains that higher levels have
+more objectives and more objectives that must be satisfied with independence.
+
+----------------------------------------------------------------------
+5. WHAT IS AN "OBJECTIVE"?
+----------------------------------------------------------------------
+
+An objective is not merely a task such as "write a test."
+
+Think of the chain:
+
+    Objective
+        ↓
+    activity/method used to satisfy it
+        ↓
+    evidence produced
+        ↓
+    verification/review
+        ↓
+    certification data
+
+The objectives address areas such as:
+- planning,
+- software requirements,
+- architecture/design,
+- source code,
+- integration,
+- verification,
+- testing,
+- structural coverage,
+- configuration management,
+- quality assurance,
+- certification coordination.
+
+The key mental model is:
+
+    DO-178C asks "What must be demonstrated?"
+    not simply "What code should be written?"
+
+----------------------------------------------------------------------
+6. WHAT CHANGES BETWEEN DALs?
+----------------------------------------------------------------------
+
+The applicable objective set becomes progressively more demanding.
+
+At a high level:
+
+    DAL E → no DO-178C objectives
+    DAL D → reduced objective set
+    DAL C → substantially more verification
+    DAL B → further verification and structural coverage rigor
+    DAL A → highest overall assurance rigor
+
+This is why certification effort is not proportional to lines of code alone.
+A small DAL A function can require more assurance work than a larger DAL D
+function.
+
+----------------------------------------------------------------------
+7. DAL A — CATASTROPHIC
+----------------------------------------------------------------------
+
+DAL A applies when anomalous software behavior could contribute to a
+catastrophic aircraft failure condition.
+
+Commonly cited objective count:
+
+    71 objectives
+
+DAL A has the strongest verification expectations.
+
+Structural coverage includes:
+
+    MC/DC — Modified Condition/Decision Coverage
+
+Example:
+
+    if (airspeed_ok && altitude_ok && sensor_valid)
+
+Ordinary testing that merely makes the complete expression TRUE and FALSE is
+not enough for MC/DC.
+
+The test set must demonstrate that each relevant condition can independently
+affect the decision outcome while the other conditions are controlled.
+
+Why this matters:
+
+A complex Boolean decision can contain a logic error even when normal branch
+testing appears complete.
+
+----------------------------------------------------------------------
+8. DAL B — HAZARDOUS / SEVERE-MAJOR
+----------------------------------------------------------------------
+
+DAL B applies when software failure could contribute to a hazardous or
+severe-major failure condition.
+
+Commonly cited objective count:
+
+    69 objectives
+
+Structural coverage expectation:
+
+    Decision Coverage
+
+Example:
+
+    if (altitude_error > limit)
+        command = CLIMB;
+    else
+        command = HOLD;
+
+Testing must exercise the decision outcomes.
+
+Decision coverage is more rigorous than simply proving that some statements
+were executed, but it does not require the full MC/DC criterion used at DAL A.
+
+----------------------------------------------------------------------
+9. DAL C — MAJOR
+----------------------------------------------------------------------
+
+DAL C applies when software failure could contribute to a major failure
+condition.
+
+Commonly cited objective count:
+
+    62 objectives
+
+Structural coverage expectation:
+
+    Statement Coverage
+
+The basic question is:
+
+    "Has every relevant executable statement been exercised?"
+
+Example:
+
+    if (sensor_valid)
+        use_sensor();
+    else
+        use_backup();
+
+If testing never executes the backup path, that code has not been exercised.
+
+----------------------------------------------------------------------
+10. DAL D — MINOR
+----------------------------------------------------------------------
+
+DAL D applies when software failure could contribute to a minor failure
+condition.
+
+Commonly cited objective count:
+
+    26 objectives
+
+There is no DO-178C structural coverage objective at DAL D.
+
+This does NOT mean "no verification."
+
+It means the structural-coverage objective is not applicable at this level.
+Other applicable development, verification, configuration-management and
+quality objectives still matter.
+
+Interview distinction:
+
+    "No structural coverage objective"
+    is NOT the same as
+    "No testing."
+
+----------------------------------------------------------------------
+11. DAL E — NO SAFETY EFFECT
+----------------------------------------------------------------------
+
+DAL E applies when software anomalous behavior has no effect on aircraft
+safety, aircraft operation, or crew workload.
+
+Commonly cited objective count:
+
+    0
+
+There are no DO-178C software assurance objectives assigned to DAL E.
+
+A passenger-entertainment feature is an intuitive example, although the actual
+classification must come from the system-level assessment.
+
+----------------------------------------------------------------------
+12. STRUCTURAL COVERAGE — THE BRIDGE TO TESTING
+----------------------------------------------------------------------
+
+Memorize this progression:
+
+    DAL D
+        ↓
+    no structural coverage objective
+
+    DAL C
+        ↓
+    statement coverage
+
+    DAL B
+        ↓
+    decision coverage
+
+    DAL A
+        ↓
+    MC/DC
+
+Think of the questions:
+
+Statement coverage:
+    "Did we execute this statement?"
+
+Decision coverage:
+    "Did the decision take its required outcomes?"
+
+MC/DC:
+    "Did each condition independently demonstrate influence on the decision?"
+
+NASA and FAA material explain this progression and the meaning of MC/DC.
+
+This connects to the C172P project because our current tests demonstrate
+functional and robustness behavior, but they are NOT a DAL A/B/C certification
+coverage campaign.
+
+----------------------------------------------------------------------
+13. WHAT DOES "INDEPENDENCE" MEAN?
+----------------------------------------------------------------------
+
+Some DO-178C objectives must be satisfied with independence.
+
+The intuitive idea is:
+
+    the person verifying an item should be sufficiently independent from
+    the person who produced that item.
+
+Example:
+
+    Engineer A writes requirement R1.
+    Engineer B independently verifies R1.
+
+The reason is human-factor assurance: the same person can repeat the same
+assumption or miss the same defect twice.
+
+Independence is therefore an organizational and verification control. It is
+not simply "use a different software tool."
+
+----------------------------------------------------------------------
+14. WHY DOES FLIGHT SOFTWARE NEED THIS?
+----------------------------------------------------------------------
+
+Software defects can come from:
+
+- incorrect requirements,
+- incorrect interpretation of requirements,
+- design errors,
+- incorrect state-machine logic,
+- numerical errors,
+- interface errors,
+- timing problems,
+- integration problems,
+- incorrect generated code,
+- configuration errors,
+- inadequate tests,
+- untested code,
+- uncontrolled changes.
+
+"Simulation worked" does not prove that all these classes of risk are
+controlled.
+
+DO-178C creates a disciplined chain:
+
+    system safety
+        ↓
+    software level
+        ↓
+    plans
+        ↓
+    requirements
+        ↓
+    design
+        ↓
+    source/generated code
+        ↓
+    integration
+        ↓
+    verification
+        ↓
+    objective evidence
+        ↓
+    configuration + quality assurance
+        ↓
+    certification data
+
+The goal is confidence supported by evidence.
+
+----------------------------------------------------------------------
+15. DO-178C IS NOT "THE SAFETY ANALYSIS"
+----------------------------------------------------------------------
+
+Avoid saying:
+
+    "DO-178C guarantees the aircraft is safe."
+
+A better statement:
+
+    "DO-178C provides software development-assurance objectives and
+     evidence for airborne software."
+
+System safety analysis determines the consequences of failure and helps drive
+the appropriate assurance level.
+
+DO-178C then provides the software assurance framework.
+
+----------------------------------------------------------------------
+16. DO-178C SUPPLEMENTS
+----------------------------------------------------------------------
+
+Important related documents include:
+
+    DO-330 — Software Tool Qualification Considerations
+    DO-331 — Model-Based Development and Verification
+    DO-332 — Object-Oriented Technology and Related Techniques
+    DO-333 — Formal Methods
+
+For this Controls roadmap, DO-331 is especially relevant.
+
+It provides additional guidance when model-based development and verification
+techniques are used.
+
+The key lesson is:
+
+    model-based development
+          ↓
+    does not automatically escape assurance requirements
+          ↓
+    DO-331 provides additional guidance for the MBD context
+
+----------------------------------------------------------------------
+17. HOW THIS CONNECTS TO MY C172P PROJECT
+----------------------------------------------------------------------
+
+My project currently follows approximately:
+
+    Requirements
+        ↓
+    controller design
+        ↓
+    MIL
+        ↓
+    generated C / SIL
+        ↓
+    JSBSim nonlinear simulation
+        ↓
+    requirements verification
+        ↓
+    robustness analysis
+        ↓
+    documentation
+
+This resembles the discipline of a real model-based development workflow,
+but it must NOT be presented as a DO-178C certification project.
+
+The standards-awareness lesson is:
+
+    a correct control algorithm is only one part of airborne software
+    assurance.
+
+The surrounding process also matters:
+
+    requirements
+    traceability
+    controlled design
+    verification
+    configuration management
+    quality assurance
+    tool qualification considerations
+    objective evidence
+
+======================================================================
+PART II — ANSYS SCADE SUITE
+======================================================================
+
+18. WHAT IS SCADE?
+----------------------------------------------------------------------
+
+SCADE is an Ansys product family for critical embedded software.
+
+SCADE Suite is the model-based development environment.
+
+Scade 6 is the underlying graphical/textual language/modeling technology.
+
+SCADE is not merely a drawing program. It supports:
+
+- graphical/textual software design,
+- model simulation,
+- verification,
+- requirements/tool integration,
+- automatic C/Ada code generation,
+- target integration,
+- certification-oriented workflows.
+
+----------------------------------------------------------------------
+19. WHY GRAPHICAL MODELING?
+----------------------------------------------------------------------
+
+Control engineers naturally reason using:
+
+    block diagrams
+    state machines
+    transfer functions
+    state-space equations
+    signal flows
+    filters
+    control logic
+
+A graphical model can therefore represent the algorithm closer to the
+engineer's conceptual design than manually translating everything into C.
+
+Example:
+
+    altitude_error
+          |
+          v
+       PI / PID
+          |
+          v
+    pitch command
+          |
+          v
+       limiter
+          |
+          v
+       actuator
+
+The model can become a central design artifact.
+
+----------------------------------------------------------------------
+20. WHY SCADE IS MORE THAN "DRAWING BLOCKS"
+----------------------------------------------------------------------
+
+A generic diagramming tool does not become a safety-critical development
+environment simply because it has boxes and arrows.
+
+SCADE's relevance comes from the combination of:
+
+    formally defined modeling language
+    model analysis
+    simulation
+    verification support
+    traceability/integration
+    controlled automatic code generation
+    tool qualification/certification support
+
+The objective is to reduce ambiguity between:
+
+    engineering model
+          ↓
+    implementation
+
+rather than relying entirely on a human to translate the model into C and
+then prove that the translation is faithful.
+
+----------------------------------------------------------------------
+21. WHAT IS KCG?
+----------------------------------------------------------------------
+
+SCADE Suite KCG is the SCADE code-generation technology.
+
+Ansys states that KCG generates C and Ada code from SCADE models and that
+its code generator has been qualified as a development tool for DO-178C/DO-330
+at TQL-1.
+
+The important concept is:
+
+    model
+      ↓
+    qualified/controlled code generator
+      ↓
+    C / Ada implementation
+
+This can reduce manual coding and some associated verification effort.
+
+It does NOT mean:
+
+    "Generated code needs no verification."
+
+It means the toolchain can provide evidence supporting trust in the
+model-to-code transformation under the applicable qualification and project
+process.
+
+----------------------------------------------------------------------
+22. WHY TOOL QUALIFICATION MATTERS
+----------------------------------------------------------------------
+
+Suppose a tool generates 100,000 lines of C.
+
+If the certification argument relies on that generated output, confidence is
+needed in the tool's relevant behavior.
+
+Otherwise:
+
+    verified model
+        ↓
+    unknown transformation
+        ↓
+    generated C
+
+creates a gap in the assurance argument.
+
+DO-330 addresses software tool qualification considerations.
+
+A qualified tool does not remove all other verification requirements. It
+provides a way to establish confidence in the tool's use for the intended
+certification purpose.
+
+----------------------------------------------------------------------
+23. WHY NOT JUST HAND-WRITE C?
+----------------------------------------------------------------------
+
+Never answer:
+
+    "Because handwritten C is unsafe."
+
+Handwritten C can be used in safety-critical aerospace software.
+
+The real difference is the development and verification burden.
+
+Handwritten implementation:
+
+    requirements
+        ↓
+    design
+        ↓
+    handwritten C
+        ↓
+    code review
+        ↓
+    static analysis
+        ↓
+    testing
+        ↓
+    coverage
+        ↓
+    integration
+        ↓
+    evidence
+
+Model-based qualified-generation workflow:
+
+    requirements
+        ↓
+    model
+        ↓
+    model verification
+        ↓
+    qualified code generation
+        ↓
+    generated C/Ada
+        ↓
+    required verification
+        ↓
+    integration
+        ↓
+    evidence
+
+The second approach can reduce manual translation and coding effort while
+creating a controlled transformation between model and implementation.
+
+----------------------------------------------------------------------
+24. WHY IS THIS ATTRACTIVE FOR FLIGHT CONTROLS?
+----------------------------------------------------------------------
+
+Flight-control software naturally contains:
+
+    state-space equations
+    transfer functions
+    filters
+    gain schedules
+    state machines
+    mode logic
+    limiters
+    signal conditioning
+    control allocation
+
+A model-based environment represents these concepts naturally.
+
+For the C172P controller:
+
+    x = [delta_u, delta_alpha, delta_theta, q]
+
+and:
+
+    u = -Kx
+
+A model-based environment can represent the signal flow and controller
+structure directly.
+
+This can connect:
+
+    requirements
+    design
+    simulation
+    verification
+    implementation
+
+into one controlled workflow.
+
+----------------------------------------------------------------------
+25. AIRBUS AND SCADE — IMPORTANT NUANCE
+----------------------------------------------------------------------
+
+Do NOT say:
+
+    "Airbus never uses handwritten C."
+
+That is too broad.
+
+Ansys documents Airbus use of SCADE in mission-/safety-critical contexts.
+One Airbus case describes an HMI platform whose software had previously been
+developed with handwritten code and was later moved toward SCADE-based
+model-based engineering and automatic code generation.
+
+An Ansys SCADE methodology handbook also identifies industrial use of SCADE
+Suite for critical software including flight-control software at Airbus.
+
+Therefore the interview-safe statement is:
+
+    "Airbus uses SCADE in significant safety-/mission-critical development
+     contexts. SCADE can replace some manually written implementation with
+     model-based development and controlled automatic code generation; it
+     would be inaccurate to claim that all Airbus software is SCADE-generated
+     or that Airbus never uses handwritten C."
+
+----------------------------------------------------------------------
+26. WHAT DOES QUALIFIED CODE GENERATION BUY YOU?
+----------------------------------------------------------------------
+
+The benefit is reduced uncertainty in the model-to-code transformation.
+
+Without controlled generation:
+
+    model
+      ↓
+    human translation
+      ↓
+    C
+      ↓
+    "Did I implement exactly what the model means?"
+
+With qualified generation:
+
+    model
+      ↓
+    qualified/controlled generator
+      ↓
+    C/Ada
+      ↓
+    established evidence around the transformation
+
+This does not eliminate requirements verification, model verification,
+integration, configuration management, testing, or all other applicable
+objectives.
+
+It changes where assurance evidence is concentrated.
+
+----------------------------------------------------------------------
+27. SCADE VS MY CURRENT SIMULINK WORK
+----------------------------------------------------------------------
+
+My project uses:
+
+    Simulink
+       ↓
+    Simulink Coder
+       ↓
+    generated C
+       ↓
+    SIL
+       ↓
+    JSBSim
+
+SCADE follows a similar model-based philosophy but is strongly focused on
+critical embedded software and certification-oriented workflows.
+
+A useful interview distinction:
+
+    Simulink:
+        broad control, simulation and engineering ecosystem.
+
+    SCADE:
+        strongly focused on critical embedded software development,
+        verification and qualifiable/certified code generation.
+
+This does NOT mean:
+
+    Simulink = unsafe
+    SCADE = automatically certified
+
+Certification depends on the exact tool version, qualification status,
+intended use, project process and certification authority.
+
+======================================================================
+PART III — POLYSPACE
+======================================================================
+
+28. WHAT PROBLEM DOES POLYSPACE SOLVE?
+----------------------------------------------------------------------
+
+After a model generates C, a new question appears:
+
+    "Is the implementation code free from important defects?"
+
+A mathematically correct controller can still have C-level problems such as:
+
+    array bounds errors
+    integer overflow
+    division by zero
+    uninitialized variables
+    pointer/memory errors
+    data races
+    coding-rule violations
+    suspicious programming constructs
+
+Polyspace adds static analysis to the verification workflow.
+
+The fundamental distinction is:
+
+    testing:
+        execute selected scenarios
+
+    static analysis:
+        analyze source-code behavior without relying only on execution
+
+The two relevant products are:
+
+    Polyspace Bug Finder
+    Polyspace Code Prover
+
+They complement each other.
+
+----------------------------------------------------------------------
+29. POLYSPACE BUG FINDER
+----------------------------------------------------------------------
+
+Bug Finder is primarily a broad defect and code-quality analysis tool.
+
+It analyzes C/C++ code and can identify:
+
+    - coding defects
+    - coding-rule violations
+    - possible runtime issues
+    - security issues
+    - concurrency issues
+    - code-quality metrics
+
+It supports coding standards such as:
+
+    MISRA C
+    MISRA C++
+    CERT C/C++
+    AUTOSAR C++14
+    CWE-related checks
+    custom coding rules
+
+Its philosophy is:
+
+    broad detection + relatively fast analysis + manageable false positives
+
+Therefore it is useful throughout development and code review.
+
+----------------------------------------------------------------------
+30. WHY BUG FINDER IS USEFUL FOR GENERATED C
+----------------------------------------------------------------------
+
+Suppose Simulink generates:
+
+    controller.c
+
+MIL and SIL might show:
+
+    correct altitude tracking
+    correct elevator response
+    MIL/SIL agreement
+
+But Bug Finder can ask different questions:
+
+    Is a variable potentially uninitialized?
+    Is an array index suspicious?
+    Is there an unsafe conversion?
+    Is a coding rule violated?
+    Is there a concurrency issue?
+    Is there a dangerous construct?
+
+Therefore:
+
+    model-level verification
+           +
+    code-level static analysis
+
+are complementary.
+
+----------------------------------------------------------------------
+31. POLYSPACE CODE PROVER
+----------------------------------------------------------------------
+
+Code Prover goes deeper in a different direction.
+
+It uses static analysis based on formal methods / abstract interpretation to
+attempt to prove the absence of selected runtime errors across analyzed
+execution paths and inputs.
+
+Examples include:
+
+    division by zero
+    array out-of-bounds
+    overflow
+    uninitialized variables
+    invalid memory access
+    selected concurrency/global-variable problems
+
+The key word is:
+
+    PROVE
+
+For a selected runtime-error class, Code Prover tries to establish:
+
+    "Under the specified analysis assumptions, this error cannot occur
+     along the analyzed execution paths."
+
+That differs fundamentally from:
+
+    "I ran 1,000 tests and did not observe the error."
+
+----------------------------------------------------------------------
+32. TESTING VS CODE PROVER
+----------------------------------------------------------------------
+
+Suppose:
+
+    y = numerator / denominator;
+
+Testing may try:
+
+    denominator = 1
+    denominator = 2
+    denominator = 10
+
+and never test:
+
+    denominator = 0
+
+Code Prover can reason about the possible value range and paths and attempt
+to prove that:
+
+    denominator != 0
+
+for the analyzed conditions.
+
+Thus:
+
+    Testing:
+        "These selected scenarios work."
+
+    Code Prover:
+        "I attempted a proof over the analyzed behavior for this class of
+         runtime error."
+
+Neither statement should be confused with the other.
+
+----------------------------------------------------------------------
+33. CODE PROVER RESULT COLORS
+----------------------------------------------------------------------
+
+Conceptually:
+
+    GREEN
+        The relevant property was proven safe.
+
+    RED
+        A definite error was established.
+
+    ORANGE
+        The tool could not establish either safety or a definite error;
+        further review/evidence is required.
+
+Orange does NOT automatically mean "the code is wrong."
+
+It means:
+
+    "The proof is incomplete for this operation under the supplied
+     assumptions."
+
+This can require inspection, additional assumptions, constraints, testing,
+or redesign.
+
+----------------------------------------------------------------------
+34. BUG FINDER VS CODE PROVER
+----------------------------------------------------------------------
+
++----------------------+---------------------------+---------------------------+
+| Aspect               | Bug Finder                | Code Prover               |
++----------------------+---------------------------+---------------------------+
+| Main goal            | Find defects/rule issues  | Prove selected safety     |
+| Analysis             | Broad static analysis     | Deeper proof-oriented     |
+| Focus                | Many defect categories   | Selected runtime errors  |
+| False positives      | Tries to reduce them     | Conservative proof       |
+| Typical output       | Probable defects         | Proven / unproven        |
+| Development use      | Frequent                 | Verification-focused     |
++----------------------+---------------------------+---------------------------+
+
+MathWorks specifically describes Bug Finder as faster/broader defect finding
+and Code Prover as more exhaustive for selected runtime-error classes.
+
+----------------------------------------------------------------------
+35. SIMPLE ARRAY EXAMPLE
+----------------------------------------------------------------------
+
+Consider:
+
+    y = array[index];
+
+Bug Finder might identify suspicious indexing or related coding defects.
+
+Code Prover can reason about whether:
+
+    0 <= index < array_size
+
+can be guaranteed for the analyzed paths.
+
+Possible result:
+
+    GREEN  → safe for the checked property
+    RED    → definite violation
+    ORANGE → cannot prove safety or definite failure
+
+This illustrates the difference between finding likely defects and proving
+selected runtime properties.
+
+----------------------------------------------------------------------
+36. DIVISION-BY-ZERO EXAMPLE
+----------------------------------------------------------------------
+
+Consider:
+
+    command = numerator / denominator;
+
+Testing might execute many nonzero denominator values.
+
+Code Prover attempts to establish whether:
+
+    denominator == 0
+
+can occur along the analyzed paths.
+
+This is especially relevant in embedded control software because numerical
+errors can propagate into control commands.
+
+----------------------------------------------------------------------
+37. WHY POLYSPACE MATTERS TO MODEL-BASED CONTROL
+----------------------------------------------------------------------
+
+A professional MBD workflow can look like:
+
+    Requirements
+        ↓
+    Simulink / SCADE model
+        ↓
+    model verification
+        ↓
+    code generation
+        ↓
+    generated C
+        ↓
+    Polyspace Bug Finder
+        ↓
+    Polyspace Code Prover
+        ↓
+    target integration
+        ↓
+    testing / verification
+        ↓
+    certification evidence
+
+For the C172P project:
+
+    MIL
+        → verifies controller behavior at model level.
+
+    SIL
+        → verifies behavior using generated C.
+
+    JSBSim
+        → provides nonlinear aircraft simulation.
+
+    Model Advisor
+        → checks model quality/design-rule/configuration issues.
+
+    Polyspace
+        → would analyze generated C for implementation-level defects and
+          selected runtime properties.
+
+These layers answer different questions.
+
+----------------------------------------------------------------------
+38. POLYSPACE AND DO-178C
+----------------------------------------------------------------------
+
+Do not say:
+
+    "Polyspace is DO-178C."
+
+The technically correct statement is:
+
+    "Polyspace provides static-analysis capabilities and certification /
+     qualification support that can be used within workflows addressing
+     standards such as DO-178C."
+
+MathWorks documents DO-178 support through its DO Qualification Kit.
+
+Running Polyspace does NOT automatically make software DO-178C compliant.
+
+Actual compliance depends on the complete project process:
+
+    applicable DAL
+    plans
+    objectives
+    independence
+    traceability
+    verification evidence
+    configuration management
+    quality assurance
+    tool qualification/credit
+    certification authority agreement
+
+======================================================================
+PART IV — INTERVIEW-READY MATERIAL
+======================================================================
+
+39. TEN DO-178C BULLETS
+----------------------------------------------------------------------
+
+1. DO-178C is an objective-oriented airborne software assurance standard;
+   it defines objectives and evidence for demonstrating software assurance
+   appropriate to failure consequences.
+
+2. The software level is driven by the consequences of software-related
+   failure, not simply by code size or complexity.
+
+3. DAL A is catastrophic, B is hazardous/severe-major, C is major, D is
+   minor, and E has no safety effect.
+
+4. The commonly cited objective counts are 71 (A), 69 (B), 62 (C), 26 (D),
+   and 0 (E).
+
+5. Higher DALs require progressively more rigorous assurance evidence and
+   more objectives with independence.
+
+6. Structural coverage progresses from none at D, to statement coverage at
+   C, decision coverage at B, and MC/DC at A.
+
+7. MC/DC demonstrates that each relevant condition can independently affect
+   a decision outcome.
+
+8. DO-178C is not merely a coding standard; it addresses planning,
+   development, verification, configuration management, quality assurance,
+   and certification coordination.
+
+9. DO-331 provides additional guidance for model-based development and
+   verification; DO-330 addresses software tool qualification.
+
+10. For a flight-controls engineer, a correct controller is only one part of
+    the assurance argument; requirements, traceability, verification,
+    implementation control and objective evidence also matter.
+
+----------------------------------------------------------------------
+40. FIVE POLYSPACE BULLETS
+----------------------------------------------------------------------
+
+1. Polyspace Bug Finder is a static-analysis tool for finding C/C++ defects,
+   coding-rule violations, security/concurrency issues, and other code
+   quality problems.
+
+2. Bug Finder is broad and relatively fast; it aims to find meaningful
+   defects while controlling false positives.
+
+3. Polyspace Code Prover uses formal-methods-based static analysis /
+   abstract interpretation to attempt to prove the absence of selected
+   runtime errors across analyzed execution paths and inputs.
+
+4. Code Prover can analyze properties such as division by zero, array bounds,
+   overflow, uninitialized variables and selected memory/concurrency issues;
+   green indicates a proven-safe property, red a definite error, and orange
+   an unproven/inconclusive result.
+
+5. Bug Finder and Code Prover complement testing: Bug Finder searches broadly
+   for defects, Code Prover performs deeper proof-oriented analysis of
+   selected runtime properties, and requirements-based testing demonstrates
+   behavior for defined scenarios.
+
+----------------------------------------------------------------------
+41. SCADE — INTERVIEW VERSION
+----------------------------------------------------------------------
+
+"Ansys SCADE Suite is a model-based development environment for critical
+embedded software. Its Scade language provides a precise graphical/textual
+representation of software behavior, while SCADE Suite supports simulation,
+verification, integration and automatic C/Ada code generation. Its KCG code
+generator has been qualified in DO-178C/DO-330 contexts. The important point
+is not that generated code needs no verification; rather, a controlled and
+qualified model-to-code workflow can reduce manual translation and associated
+verification effort while providing evidence about the transformation.
+Airbus has used SCADE in significant mission-/safety-critical development
+contexts, including cases where previously handwritten software was moved
+toward model-based development."
+
+----------------------------------------------------------------------
+42. MODEL ADVISOR — INTERVIEW VERSION FOR THIS PROJECT
+----------------------------------------------------------------------
+
+For this C172P project, Model Advisor was executed on the autopilot model.
+The completed run produced 36 passed checks, 7 warnings and 1 failed check.
+The warnings were mainly model/configuration diagnostics. The failed
+S-function check was investigated and involved the custom JSBSim interface:
+the analyzer's independent compilation environment could not locate the
+externally installed JSBSim header FGFDMExec.h, and the S-function also
+reported an operating-point compliance issue associated with persistent
+PWork state. These findings were documented rather than presented as
+evidence of DO-178C compliance.
+
+----------------------------------------------------------------------
+43. IF AN INTERVIEWER ASKS "IS YOUR PROJECT DO-178C COMPLIANT?"
+----------------------------------------------------------------------
+
+Do NOT say:
+
+    "Yes, because I used Simulink, Model Advisor and SIL."
+
+Use:
+
+    "No. This is an engineering portfolio project, not a certified
+     DO-178C development program. I studied the DO-178C assurance model and
+     applied related engineering practices such as requirements-based
+     verification, MIL/SIL comparison, robustness analysis, model review
+     and configuration/documentation discipline. I also ran the available
+     Model Advisor checks and documented the findings. I understand that
+     actual DO-178C compliance requires the applicable DAL, plans, objectives,
+     independence, traceability, configuration management, quality assurance,
+     verification evidence, tool qualification considerations and the
+     certification process."
+
+======================================================================
+PART V — SOURCE NOTES
+======================================================================
+
+High-value references used for this study:
+
+1. FAA AC 20-115D
+   Airborne Software Development Assurance Using EUROCAE ED-12( ) and
+   RTCA DO-178( ).
+
+2. Ansys — "What is DO-178C?"
+   Used for DAL definitions, objective counts, independence concept and
+   DO-178C structure.
+
+3. NASA — "Towards Understanding the DO-178C / ED-12C"
+   Used for structural coverage progression and MC/DC explanation.
+
+4. Ansys — "Ansys SCADE Suite"
+   Used for SCADE Suite capabilities, automatic code generation and KCG
+   qualification information.
+
+5. Ansys — "Methodology Handbook: Efficient Development of Safe Avionics
+   Software with DO-178C Objectives Using SCADE Suite"
+   Used for SCADE's avionics/flight-control context.
+
+6. Ansys Airbus case material
+   Used for the example of Airbus moving previously handwritten software
+   toward SCADE-based model-based development and automatic code generation.
+
+7. MathWorks — "Differences Between Polyspace Bug Finder and Polyspace
+   Code Prover"
+   Used for the direct Bug Finder vs Code Prover comparison.
+
+8. MathWorks — Polyspace Bug Finder documentation
+   Used for defect, coding-rule, security and code-quality capabilities.
+
+9. MathWorks — Polyspace Code Prover documentation
+   Used for formal/static analysis, abstract interpretation, runtime-error
+   proof concepts and result interpretation.
+
+SOURCE DISCIPLINE
+-----------------
+The exact requirements for a real certification program must be taken from
+the applicable revision of DO-178C/ED-12C, project plans, certification
+authority guidance, tool qualification documentation and approved means of
+compliance.
+
+This document is an engineering-awareness study note and is not a substitute
+for the actual standards or certification plans.
+
+======================================================================
+END OF DOCUMENT
+======================================================================

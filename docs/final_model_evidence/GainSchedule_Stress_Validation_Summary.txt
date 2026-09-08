@@ -1,0 +1,10 @@
+GAIN-SCHEDULED CONTROLLER -- ENVELOPE-EXCURSION VALIDATION
+===========================================================
+Wings-level recovery test at 90 and 225 ft/s starting conditions.
+Phi/p logged to confirm no unexpected lateral coupling in a
+longitudinal-only disturbance -- NOT a substitute for the
+combined lateral+longitudinal mission test.
+
+stress_low   | final u =  188.859 ft/s | max |elevator| = 0.5618 | max |phi| = 7.5346 deg
+cruise       | final u =  185.128 ft/s | max |elevator| = 0.2617 | max |phi| = 1.1842 deg
+stress_high  | final u =  183.689 ft/s | max |elevator| = 0.4444 | max |phi| = 0.4983 deg

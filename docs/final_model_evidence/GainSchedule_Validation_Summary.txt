@@ -1,0 +1,8 @@
+GAIN-SCHEDULED CONTROLLER VALIDATION
+=====================================
+Single model, three starting conditions. Proves recovery behavior
+across the tested envelope, not improvement over a prior baseline.
+
+low    IC | final u =  188.283 ft/s | max |elevator| = 0.9998
+cruise IC | final u =  185.111 ft/s | max |elevator| = 0.2781
+high   IC | final u =  184.028 ft/s | max |elevator| = 0.6929

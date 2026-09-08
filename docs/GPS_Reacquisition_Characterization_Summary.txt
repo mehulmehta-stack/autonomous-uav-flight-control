@@ -1,0 +1,9 @@
+GPS REACQUISITION CHARACTERIZATION (gain-scheduled LQG stack)
+===============================================================
+GPS_Validity outage active (t=25-35s), unmodified from saved model.
+
+Elevator, before outage  (t=20-25s): max|e|=0.2069, mean=0.2061
+Elevator, during outage  (t=25-35s): max|e|=0.2053, mean=0.2039
+Elevator, after outage   (t=35-40s): max|e|=0.9998, mean=0.2026
+
+Elevator returns to within 0.02 of pre-outage level 0.007 seconds after reacquisition.

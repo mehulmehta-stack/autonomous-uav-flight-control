@@ -1,0 +1,9 @@
+COMBINED SYSTEM TEST -- FULL WAYPOINT MISSION FROM ENVELOPE-EXCURSION SPEEDS
+=============================================================================
+Tsim = 800 s. Tests whether the throttle-transient roll/yaw coupling found
+in the 40s wings-level test (REQ-012) compounds with genuine L1-commanded
+turns, or is small enough to be absorbed within normal mission behavior.
+
+stress_low   | max |elevator| = 0.7977 | max |phi| =  13.40 deg | final u =   99.368 ft/s
+cruise       | max |elevator| = 0.2534 | max |phi| =  17.79 deg | final u =  185.084 ft/s
+stress_high  | max |elevator| = 0.4192 | max |phi| =  17.79 deg | final u =  185.084 ft/s

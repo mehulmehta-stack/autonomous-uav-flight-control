@@ -1,0 +1,3204 @@
+
+================================================================================
+C172P ALTITUDE-HOLD PROJECT
+COMPLETE ENGINEERING DOCUMENTATION / RESTART MANUAL
+================================================================================
+
+Target:
+    Cessna 172P (JSBSim)
+    Altitude hold near 4000 ft
+    Trim airspeed near 185 ft/s
+    MATLAB + JSBSim + Simulink
+    Inner-loop 4-state discrete LQR
+    Outer-loop altitude PID
+    Auxiliary throttle and bank stabilization
+
+Purpose of this document:
+    This document reconstructs the complete engineering journey from the
+    beginning of the C172P altitude-hold work through the current working
+    Simulink architecture.
+
+    It is intentionally written as a restart document. The goal is that a
+    future version of the project can be rebuilt without repeating the
+    confusing XML, state-order, sign-convention, trim, and Simulink wiring
+    mistakes encountered during development.
+
+IMPORTANT STATUS DISTINCTION
+-----------------------------
+The project contains several different levels of "success":
+
+    LEVEL 1:
+        JSBSim can successfully trim the aircraft at approximately
+        4000 ft / 185 ft/s.
+
+    LEVEL 2:
+        JSBSim can be linearly perturbed and the resulting plant dynamics
+        can be extracted.
+
+    LEVEL 3:
+        The extracted 4-state discrete model is controllable.
+
+    LEVEL 4:
+        The 4-state DLQR controller is mathematically stable in the linear
+        model.
+
+    LEVEL 5:
+        The complete nonlinear JSBSim + Simulink altitude-hold system works
+        with the final attached Simulink model.
+
+This document records all five levels separately.
+
+DO NOT claim that success at one level automatically proves success at the
+next level.
+
+Also important:
+    The attached final SLX is evidence of the current implementation, not
+    evidence that every design choice in an earlier written manual was
+    correct.
+
+The final attached SLX is the authoritative source for the actual current
+Simulink wiring.
+
+================================================================================
+PART 1 — STARTING POINT AND ENGINEERING OBJECTIVE
+================================================================================
+
+The objective was not simply to make a graph that says "4000 ft".
+
+The engineering objective was to build a model-based flight-control chain:
+
+    Requirements
+        |
+        v
+    Aircraft / plant model
+        |
+        v
+    Trim operating point
+        |
+        v
+    Linearization
+        |
+        v
+    State-space model
+        |
+        v
+    Discrete controller design
+        |
+        v
+    Simulink implementation
+        |
+        v
+    JSBSim nonlinear plant
+        |
+        v
+    Altitude response
+        |
+        v
+    Verification
+
+The target operating condition was:
+
+    altitude       ~= 4000 ft
+    forward speed ~= 185 ft/s
+    gamma          ~= 0 deg
+
+The reason for selecting a trim point is fundamental:
+
+    LQR is a local linear controller.
+
+An aircraft is nonlinear:
+
+    x_dot = f(x,u)
+
+Around an equilibrium point:
+
+    x0, u0
+
+the nonlinear model can be approximated by:
+
+    delta_x_dot = A delta_x + B delta_u
+
+where:
+
+    delta_x = x - x0
+    delta_u = u - u0
+
+Therefore the controller must work with deviations from the operating point,
+not arbitrary absolute aircraft values.
+
+================================================================================
+PART 2 — WHY A SIMPLE ALTITUDE PID WAS NOT THE FINAL ARCHITECTURE
+================================================================================
+
+A first instinct is:
+
+    altitude error
+        |
+        v
+       PID
+        |
+        v
+     elevator
+
+That is insufficient as the complete aircraft architecture.
+
+Altitude and airspeed are coupled.
+
+If the elevator is used to pitch the aircraft upward:
+
+    pitch up
+       |
+       v
+    altitude increases
+       |
+       v
+    kinetic energy is consumed
+       |
+       v
+    airspeed decreases
+
+If airspeed becomes too low:
+
+    lift / dynamic response changes
+       |
+       v
+    the aircraft may lose the ability to maintain altitude
+
+Therefore the final architecture separates the main responsibilities:
+
+    Elevator:
+        pitch / flight-path response
+
+    Throttle:
+        airspeed / energy support
+
+    Aileron:
+        bank stabilization using a PI wing-leveler
+
+    Rudder:
+        currently held at zero in the implemented model
+
+The altitude loop therefore commands a pitch objective, while the inner
+controller stabilizes the aircraft about that pitch objective.
+
+================================================================================
+PART 3 — WHY LINEARIZATION WAS NECESSARY
+================================================================================
+
+LQR requires a linear state-space model:
+
+    x[k+1] = A_d x[k] + B_d u[k]
+
+The real JSBSim plant is nonlinear.
+
+Therefore the workflow became:
+
+    1. Trim JSBSim.
+    2. Verify the trim.
+    3. Perturb elevator.
+    4. Extract local dynamics.
+    5. Construct A and B.
+    6. Discretize A and B.
+    7. Design DLQR.
+    8. Verify the linear closed loop.
+    9. Only then put the controller into nonlinear Simulink.
+
+This separation was one of the most important lessons of the project.
+
+If the linear controller fails:
+    fix the mathematical/controller implementation.
+
+If the linear controller passes but nonlinear JSBSim fails:
+    investigate nonlinear implementation, trim offsets, actuator conventions,
+    operating range, saturation, missing loops, or model limitations.
+
+Do NOT randomly change A, B, K, XML, and Simulink at the same time.
+
+================================================================================
+PART 4 — VERIFIED TRIM POINT
+================================================================================
+
+The most important verified JSBSim result was the successful longitudinal
+trim.
+
+The successful terminal command used:
+
+    cd /d D:\Controls\CTMS
+
+    "D:\jsbsim-1.3.1\out\install\x64-Release\bin\JSBSim.exe" ^
+      --script=scripts/c172_trim_linearize_final.xml
+
+The trim output contained:
+
+    Longitudinal Trim
+
+    Trim successful
+
+    Angle of Attack     : 0.15
+    wdot                : -1.27e-04
+    Tolerance           : 1e-03
+    Passed
+
+    Throttle            : 0.71
+    udot                : -4.63e-05
+    Tolerance           : 1e-03
+    Passed
+
+    Pitch Trim          : 0.2
+    qdot                : 5.53e-11
+    Tolerance           : 1e-04
+    Passed
+
+The resulting operating point was:
+
+    altitude:
+        4000.02 ft
+
+    u:
+        184.999 ft/s
+
+    alpha:
+        0.00265562 rad approximately
+
+    theta:
+        0.00265562 rad approximately
+
+    q:
+        0 rad/s
+
+    throttle:
+        0.736293 approximately
+
+    pitch-trim command:
+        0.202122
+
+    physical elevator position:
+        0.0811215 rad
+
+The distinction between these quantities is critical.
+
+    fcs/elevator-cmd-norm = 0
+
+does NOT mean:
+
+    physical elevator = 0.
+
+The C172P's pitch-trim system establishes a nonzero physical elevator
+position:
+
+    fcs/elevator-pos-rad = 0.0811215
+
+and the trim command is approximately:
+
+    fcs/pitch-trim-cmd-norm = 0.202122
+
+This distinction caused significant confusion during development and must
+remain explicit in future work.
+
+================================================================================
+PART 5 — WHY THE AIRCRAFT CAN DIVERGE WHEN K = 0
+================================================================================
+
+One of the useful tests was to remove active DLQR control and observe the
+plant.
+
+The successful native trim proves that an equilibrium exists.
+
+It does NOT prove that the aircraft will remain exactly at that equilibrium
+for an arbitrarily long nonlinear simulation when the active feedback loop
+is removed.
+
+The zero-elevator/free-flight diagnostic showed approximately:
+
+    t = 0 s:
+        h ~= 4000 ft
+
+    t = 5 s:
+        h ~= 4002.46 ft
+
+    t = 10 s:
+        h ~= 3944.26 ft
+
+    t = 15 s:
+        h ~= 3868.67 ft
+
+Therefore:
+
+    open-loop/free-flight departure from trim is real.
+
+This is not automatically evidence of a bug in JSBSim.
+
+An aircraft requires active feedback to reject disturbances and maintain
+commanded states.
+
+This was an important conceptual correction during the project.
+
+================================================================================
+PART 6 — ELEVATOR PERTURBATION TEST
+================================================================================
+
+A separate diagnostic script successfully applied an elevator perturbation.
+
+The important event sequence was:
+
+    Before perturbation:
+        elevator-cmd-norm = 0
+
+    Elevator perturbation ON:
+        elevator-cmd-norm = 0.01
+
+    Elevator perturbation OFF:
+        elevator-cmd-norm = 0
+
+The physical elevator position changed and the aircraft response changed.
+
+Representative values:
+
+    Before:
+        q ~= 0.000423 rad/s
+        alpha ~= 0.002701 rad
+        theta ~= 0.002818 rad
+        altitude ~= 4000.02 ft
+
+    During +0.01 elevator command:
+        elevator-cmd-norm = 0.01
+
+    Shortly after removal:
+        elevator-cmd-norm = 0
+        elevator-pos-rad ~= 0.085135 rad
+        q ~= -0.011187 rad/s
+        alpha ~= 0.001432 rad
+        theta ~= 0.001419 rad
+
+This proved that the elevator input path was capable of influencing the
+aircraft.
+
+The test therefore became an important hardware/software-interface sanity
+check before DLQR integration.
+
+================================================================================
+PART 7 — NATIVE LINEARIZATION
+================================================================================
+
+The authoritative linearization file is:
+
+    c172_trim_linearize_final.xml
+
+It was executed using:
+
+    cd /d D:\Controls\CTMS
+
+    "D:\jsbsim-1.3.1\out\install\x64-Release\bin\JSBSim.exe" ^
+      --script=scripts/c172_trim_linearize_final.xml
+
+This generated:
+
+    c172_lin.sce
+
+The file was inspected using:
+
+    type c172_lin.sce
+
+The output contained the complete state-space model.
+
+This was preferable to guessing aerodynamic derivatives because JSBSim
+itself generated the local model at the verified trim.
+
+================================================================================
+PART 8 — FOUR-STATE LONGITUDINAL MODEL
+================================================================================
+
+The final controller state vector was:
+
+    x =
+        [ delta_u
+          delta_alpha
+          delta_theta
+          q ]
+
+The exact state order matters.
+
+It is:
+
+    STATE 1:
+        delta_u
+
+    STATE 2:
+        delta_alpha
+
+    STATE 3:
+        delta_theta
+
+    STATE 4:
+        q
+
+A major source of wasted time earlier was uncertainty about whether the third
+and fourth Mux entries should be:
+
+    q, theta
+
+or:
+
+    theta, q
+
+The verified final order is:
+
+    delta_theta THIRD
+    q FOURTH
+
+The final Simulink model must preserve this order.
+
+Definitions:
+
+    delta_u =
+        u_actual - u_trim
+
+    delta_alpha =
+        alpha_actual - alpha_trim
+
+    delta_theta =
+        theta_actual - theta_command
+
+    q =
+        actual pitch rate
+
+This is a perturbation controller.
+
+It does not directly use:
+
+    [u, alpha, theta, q]
+
+as the LQR vector.
+
+It uses deviations from the selected operating point/reference.
+
+================================================================================
+PART 9 — CONTINUOUS-TIME A AND B MATRICES
+================================================================================
+
+The extracted longitudinal model used:
+
+A =
+
+    -0.060668363940     3.2740147717      -32.166876080
+    -0.016844605405
+
+    -0.0027464567573   -3.0828659556       3.7794562027e-07
+     0.95743620415
+
+     0                    approximately 0
+     approximately 0      1.0000000000
+
+     0.0099808985828   -35.9682352700      -1.1114723170e-05
+    -5.7322819189
+
+More compactly:
+
+    A =
+    [ -0.060668363940,  3.2740147717,   -32.166876080,  -0.016844605405;
+      -0.0027464567573, -3.0828659556,    3.7794562027e-07, 0.95743620415;
+       0,                ~0,               ~0,               1.0000000000;
+       0.0099808985828, -35.9682352700,  -1.1114723170e-05, -5.7322819189 ]
+
+B =
+
+    [ -2.5904758571
+      -0.099055249294
+       0
+      -11.8301405300 ]
+
+The model was controllable.
+
+Controllability rank:
+
+    4 / 4
+
+Therefore the four-state model is controllable for the selected elevator
+input.
+
+================================================================================
+PART 10 — DISCRETIZATION
+================================================================================
+
+The JSBSim/Simulink timestep was selected as:
+
+    Ts = 0.008333 s
+
+This corresponds to approximately:
+
+    120 Hz
+
+The continuous model was discretized using zero-order hold:
+
+    sys_c = ss(A,B,I,0)
+
+    sys_d = c2d(sys_c,Ts,'zoh')
+
+resulting in:
+
+    x[k+1] = Ad*x[k] + Bd*u[k]
+
+Verified Ad:
+
+    0.9995    0.0270   -0.2680   -0.0011
+    0         0.9735    0          0.0077
+    0        -0.0012    1.0000     0.0081
+    0.0001  -0.2888     0          0.9522
+
+Verified Bd:
+
+   -0.0216
+   -0.0012
+   -0.0004
+   -0.0961
+
+The discrete model was again verified controllable:
+
+    rank(ctrb(Ad,Bd)) = 4
+
+================================================================================
+PART 11 — DLQR DESIGN
+================================================================================
+
+The controller minimizes a discrete quadratic cost of the form:
+
+    J = sum [
+        x_k' Q x_k
+        +
+        u_k' R u_k
+    ]
+
+The design uses:
+
+    u_k = -K x_k
+
+The selected Bryson-style weights were:
+
+    Q =
+        diag(
+            0.0100,
+            69.4444,
+            400.0000,
+            44.4444
+        )
+
+    R =
+        6.2500
+
+The resulting gain was:
+
+    K =
+        [ 0.0205
+          2.2685
+         -7.4923
+         -2.1182 ]
+
+Therefore:
+
+    delta_e = -K*x
+
+or explicitly:
+
+    delta_e =
+        -(0.0205*delta_u
+          + 2.2685*delta_alpha
+          - 7.4923*delta_theta
+          - 2.1182*q)
+
+The minus sign belongs to the control law.
+
+Therefore do not accidentally implement:
+
+    delta_e = K*x
+
+when the designed law is:
+
+    delta_e = -K*x
+
+The Simulink implementation uses a Gain block containing K followed by a
+Gain block of -1, which is mathematically equivalent.
+
+================================================================================
+PART 12 — LINEAR CLOSED-LOOP VERIFICATION
+================================================================================
+
+The closed-loop matrix is:
+
+    A_cl = A_d - B_d K
+
+The verified closed-loop poles were approximately:
+
+    0.7745
+    0.9985
+    0.9653
+    0.9835
+
+All magnitudes are below one.
+
+Therefore:
+
+    THE LINEAR DISCRETE DLQR CLOSED LOOP IS STABLE.
+
+A 40-second linear test was also performed.
+
+Initial perturbation:
+
+    delta_u     = 5.0 ft/s
+    delta_alpha = 0.01 rad
+    delta_theta = 0.02 rad
+    q           = 0.03 rad/s
+
+After 40 seconds:
+
+    delta_u     ~= 0.0069696 ft/s
+    delta_alpha ~= -0.00000162 rad
+    delta_theta ~= 0.00002129 rad
+    q           ~= -0.00000316 rad/s
+
+This is strong evidence that the DLQR mathematics and the state ordering are
+correct.
+
+It does NOT prove nonlinear altitude-hold success.
+
+================================================================================
+PART 13 — WHY THE LINEAR TEST AND NONLINEAR JSBSIM TEST DIFFER
+================================================================================
+
+This distinction is fundamental.
+
+The linear test assumes:
+
+    x[k+1] = Ad*x[k] + Bd*u[k]
+
+around one trim point.
+
+The nonlinear test runs:
+
+    x_dot = f(x,u)
+
+through the full C172P JSBSim model.
+
+As the aircraft moves farther from trim:
+
+    nonlinear effects become larger
+
+    actuator nonlinearities become relevant
+
+    saturation becomes relevant
+
+    aerodynamic coefficients vary
+
+    throttle/elevator coupling changes
+
+    other aircraft states may become important
+
+    lateral-directional effects may appear
+
+Therefore:
+
+    stable linear model
+
+does not imply:
+
+    globally stable nonlinear aircraft.
+
+This was one of the main reasons the project initially appeared to be
+"going in circles."
+
+The correct engineering workflow is to use the linear model to verify the
+controller first, then progressively validate the nonlinear implementation.
+
+================================================================================
+PART 14 — TRIM OFFSET AND BASELINE CONTROL
+================================================================================
+
+A critical implementation principle was:
+
+    ACTUAL ACTUATOR COMMAND
+        =
+    TRIM COMMAND
+        +
+    CONTROLLER PERTURBATION
+
+For elevator:
+
+    elevator_command =
+        elevator_trim + delta_e
+
+The trim value used in the Simulink model is:
+
+    elevator trim ~= 0.2021 normalized
+
+The controller output is the perturbation.
+
+Therefore the DLQR should not be interpreted as generating the entire
+absolute elevator command from zero.
+
+Similarly for throttle:
+
+    throttle_command =
+        throttle_trim + throttle_perturbation
+
+with:
+
+    throttle_trim ~= 0.736296
+
+This distinction is essential because the C172P's physical elevator is not
+zero at the selected trimmed operating point.
+
+================================================================================
+PART 15 — FINAL SIMULINK ARCHITECTURE
+================================================================================
+
+The attached file is:
+
+    JSBSim_DLQR_PID_OuterLoop_AltitudeHold_c172p(2).slx
+
+This is the actual current Simulink implementation and should be treated as
+the authoritative wiring reference.
+
+The S-Function block is:
+
+    FunctionName:
+        JSBSim_SFunction
+
+Parameters:
+
+    'c172p',
+    0.008333,
+    1,
+    'scripts/c172_cruise_8K_FINAL',
+    'c172p_cruise_init',
+    'c172_simulink'
+
+The S-Function has:
+
+    1 input
+    3 outputs
+
+Outputs:
+
+    output 1 = State
+    output 2 = Control
+    output 3 = Pilot
+
+The State output feeds a 12-output Demux.
+
+The Pilot output feeds a 13-output Demux.
+
+The Control output feeds a 9-output Demux.
+
+================================================================================
+PART 16 — JSBSIM S-FUNCTION INPUT VECTOR
+================================================================================
+
+The attached final SLX contains an 8-input Concatenate block.
+
+The Concatenate block receives:
+
+    input 1 = Throttle
+    input 2 = Aileron
+    input 3 = Elevator
+    input 4 = Rudder
+    input 5 = Mixture
+    input 6 = Runset
+    input 7 = Flaps
+    input 8 = Gear
+
+This vector is then sent into the JSBSim S-Function.
+
+This mapping must not be changed casually.
+
+The important longitudinal controller input is:
+
+    input 3 = Elevator
+
+The throttle loop uses:
+
+    input 1 = Throttle
+
+The wing-leveler uses:
+
+    input 2 = Aileron
+
+Rudder is currently:
+
+    input 4 = 0
+
+Flaps:
+
+    input 7 = 0
+
+Gear:
+
+    input 8 = 0
+
+================================================================================
+PART 17 — STATE DEMUX MAPPING IN THE FINAL SLX
+================================================================================
+
+The State output is connected to a 12-output Demux.
+
+The important outputs used by the controller are:
+
+    State Demux output 1:
+        U
+
+    State Demux output 5:
+        Pitch Rate q
+
+    State Demux output 7:
+        Altitude (ft)
+
+    State Demux output 11:
+        Actual theta
+
+Other state outputs exist, but the current longitudinal control architecture
+does not use all of them.
+
+The State Demux is therefore the primary measurement source for:
+
+    U
+    q
+    altitude
+    theta
+    phi
+
+The exact phi mapping in the final SLX is:
+
+    State Demux output 10 = phi / bank angle
+
+================================================================================
+PART 18 — PILOT DEMUX MAPPING
+================================================================================
+
+The Pilot output feeds a 13-output Demux.
+
+Important Pilot Demux signals:
+
+    output 2:
+        Angle of Attack (rad)
+
+    output 6:
+        velocities/vc-fps
+
+    output 13:
+        elevator-cmd-norm
+
+The Pilot output is therefore used to observe aircraft quantities that are not
+directly being extracted from the State Demux for the controller.
+
+Angle of attack is used to construct:
+
+    delta_alpha
+
+Elevator command is monitored for verification.
+
+================================================================================
+PART 19 — CONTROL DEMUX
+================================================================================
+
+The Control output feeds a 9-output Demux.
+
+The final SLX monitors:
+
+    output 4:
+        elevator-pos-norm
+
+This is useful because it distinguishes:
+
+    commanded elevator
+
+from:
+
+    physical elevator position.
+
+This distinction is especially important because the aircraft has a
+pitch-trim system.
+
+================================================================================
+PART 20 — ALTITUDE OUTER LOOP
+================================================================================
+
+The target altitude is:
+
+    h_command = 4000 ft
+
+The Constant block named:
+
+    Constant
+
+has:
+
+    Value = 4000
+    SampleTime = 0.008333
+
+The altitude signal is:
+
+    actual altitude
+
+The altitude error is formed as:
+
+    e_h = 4000 - h_actual
+
+This feeds the outer altitude PID.
+
+The current attached SLX has the outer altitude PID block named:
+
+    PID Controller
+
+Its current parameters are:
+
+    Controller:
+        PID
+
+    Form:
+        Parallel
+
+    Time domain:
+        Discrete-time
+
+    Sample time:
+        0.008333 s
+
+    P:
+        0.01
+
+    I:
+        0.0001
+
+    D:
+        0.001
+
+    Filter:
+        enabled
+
+    Output saturation:
+        enabled
+
+    Upper:
+        0.2618 rad
+
+    Lower:
+        -0.1745 rad
+
+    Anti-windup:
+        clamping
+
+The output is named:
+
+    Delta_theta_command
+
+Therefore this PID produces a pitch-command perturbation:
+
+    delta_theta_command
+
+It is NOT itself the complete theta value.
+
+================================================================================
+PART 21 — THETA COMMAND CONSTRUCTION
+================================================================================
+
+The final SLX contains:
+
+    Thita_trim
+
+with value:
+
+    0.0026556289 rad
+
+The theta command is formed using:
+
+    theta_cmd =
+        theta_trim + delta_theta_command
+
+where:
+
+    theta_trim = 0.0026556289 rad
+
+The Sum4 block is named:
+
+    theta_cmd
+
+This is a crucial part of the architecture.
+
+The outer altitude loop does not directly command the elevator.
+
+It commands:
+
+    desired pitch perturbation
+
+which is added to:
+
+    trimmed pitch angle
+
+to create:
+
+    theta_cmd
+
+================================================================================
+PART 22 — DELTA THETA CONSTRUCTION
+================================================================================
+
+The final SLX uses:
+
+    actual theta
+
+and:
+
+    theta_cmd
+
+The block named:
+
+    Subtract1
+
+has:
+
+    Inputs = -+
+
+The connections are:
+
+    input 1:
+        theta_cmd
+
+    input 2:
+        actual theta
+
+Because the block is configured as:
+
+    -+
+
+the implemented expression is:
+
+    delta_theta =
+        actual_theta - theta_cmd
+
+This exact sign convention is important.
+
+The resulting signal is fed to:
+
+    Mux input 3
+
+Therefore:
+
+    Mux #3 = delta_theta
+
+This is the final verified state ordering.
+
+================================================================================
+PART 23 — DELTA U CONSTRUCTION
+================================================================================
+
+The final SLX contains:
+
+    velocity_trim2
+
+with:
+
+    Value = 184.999 ft/s
+
+Actual U comes from:
+
+    State Demux output 1
+
+The block:
+
+    Subtract2
+
+has:
+
+    Inputs = +-
+
+and is wired:
+
+    actual U
+        -
+    184.999
+
+Therefore:
+
+    delta_u =
+        U_actual - 184.999
+
+The result feeds:
+
+    Mux input 1
+
+Therefore:
+
+    Mux #1 = delta_u
+
+This was one of the critical state definitions that had to be made explicit.
+
+================================================================================
+PART 24 — DELTA ALPHA CONSTRUCTION
+================================================================================
+
+The final SLX uses the Pilot Demux:
+
+    output 2 =
+        Angle of Attack (rad)
+
+The block:
+
+    alpha_trim
+
+has:
+
+    Value = 0.0026556289 rad
+
+The block:
+
+    Subtract
+
+has:
+
+    Inputs = +-
+
+and produces:
+
+    delta_alpha =
+        alpha_actual - alpha_trim
+
+The result feeds:
+
+    Mux input 2
+
+Therefore:
+
+    Mux #2 = delta_alpha
+
+A separate Gain:
+
+    Multiply1
+
+has:
+
+    Gain = 57.2958
+
+This is only for converting the delta-alpha signal to degrees for monitoring.
+
+It does not change the radian signal used by the DLQR Mux.
+
+This distinction matters:
+
+    DLQR uses radians.
+
+    The degree-conversion Gain is only for visualization.
+
+================================================================================
+PART 25 — PITCH RATE STATE
+================================================================================
+
+The pitch rate q is taken from:
+
+    State Demux output 5
+
+The final Mux connection is:
+
+    Mux input 4 = q
+
+Therefore the final four-state vector is:
+
+    Mux =
+        [ delta_u
+          delta_alpha
+          delta_theta
+          q ]
+
+This is exactly the state order required by the DLQR gain.
+
+================================================================================
+PART 26 — DLQR IMPLEMENTATION IN SIMULINK
+================================================================================
+
+The Mux output enters:
+
+    Gain1
+
+Gain1 contains:
+
+    K
+
+with matrix multiplication:
+
+    Matrix(K*u)
+
+The resulting signal is:
+
+    K*x
+
+A separate Gain block named:
+
+    Gain
+
+has:
+
+    Gain = -1
+
+Therefore:
+
+    -K*x
+
+is produced.
+
+This is the actual DLQR perturbation elevator command:
+
+    delta_e = -K*x
+
+The command is then combined with elevator trim:
+
+    elevator_command =
+        elevator_trim + delta_e
+
+The trim is approximately:
+
+    0.2021 normalized
+
+The final elevator signal passes through:
+
+    Saturation
+
+with:
+
+    UpperLimit = +1
+    LowerLimit = -1
+
+and then feeds:
+
+    JSBSim input 3
+
+which is:
+
+    Elevator.
+
+================================================================================
+PART 27 — THROTTLE / ENERGY LOOP
+================================================================================
+
+The altitude loop cannot guarantee airspeed by itself.
+
+The final SLX therefore contains a second PID loop.
+
+The speed reference is:
+
+    184.999 ft/s
+
+The block:
+
+    velocity_trim2
+
+contains:
+
+    184.999
+
+The actual U comes from:
+
+    State Demux output 1
+
+The block:
+
+    Subtract3
+
+has:
+
+    Inputs = +-
+
+so the speed error is:
+
+    e_u =
+        184.999 - U_actual
+
+This signal enters:
+
+    PID Controller1
+
+Current final-SLX parameters:
+
+    Controller:
+        PID
+
+    Form:
+        Parallel
+
+    Time domain:
+        Continuous-time
+
+    P:
+        0.01
+
+    I:
+        0.001
+
+    D:
+        0
+
+    Output saturation:
+        enabled
+
+    Upper:
+        +0.26
+
+    Lower:
+        -0.73
+
+    Anti-windup:
+        clamping
+
+The PID output is a throttle perturbation.
+
+It is added to:
+
+    Throttle trim = 0.736296
+
+Then the final throttle command passes through:
+
+    Saturation1
+
+with:
+
+    Upper = 1
+    Lower = 0
+
+The final signal is:
+
+    throttle_command
+
+and feeds:
+
+    JSBSim input 1.
+
+IMPORTANT:
+The current attached SLX is the authoritative source for the actual
+implemented speed-loop gains and continuous/discrete setting.
+
+Earlier written notes contained different proposed throttle PID gains.
+Do not mix those earlier proposals into the current model without an explicit
+new experiment.
+
+================================================================================
+PART 28 — BANK / LATERAL STABILIZATION — FINAL PI IMPLEMENTATION
+================================================================================
+
+The final model contains a bank stabilization loop implemented as a
+proportional-integral (PI) feedback controller.
+
+This section supersedes the earlier proportional-only implementation.
+
+The evolution of this loop is important because the proportional-only version
+solved one problem but exposed a second, smaller steady-state problem.
+
+-------------------------------------------------------------------------------
+28.1 — WHY THE AILERON LOOP WAS ADDED
+-------------------------------------------------------------------------------
+
+Initially, the aileron input was effectively zero.
+
+With no lateral stabilization, the nonlinear C172P simulation could develop
+uncontrolled roll/bank behavior. The aircraft could enter increasingly
+undesirable lateral motion, lose altitude, and eventually become unstable.
+
+Therefore a simple bank-feedback loop was introduced before attempting a more
+complete lateral-directional controller.
+
+The immediate requirement was:
+
+    prevent uncontrolled bank
+        |
+        v
+    prevent lateral motion from becoming a major source of altitude loss.
+
+-------------------------------------------------------------------------------
+28.2 — FIRST WORKING VERSION: PROPORTIONAL WING-LEVELER
+-------------------------------------------------------------------------------
+
+The first successful aileron feedback law was:
+
+    aileron_command =
+        sat(-0.5 * phi)
+
+where:
+
+    phi = aircraft bank angle in radians
+
+This is a proportional controller:
+
+    delta_a = -K_phi * phi
+
+with:
+
+    K_phi = 0.5
+
+The signal path was:
+
+    phi
+      |
+      v
+    Gain(-0.5)
+      |
+      v
+    Aileron command
+      |
+      v
+    Saturation [-1,+1]
+      |
+      v
+    JSBSim input 2
+
+This successfully prevented the severe uncontrolled roll behavior.
+
+However, the proportional controller did not remove the steady-state bank
+error completely.
+
+The aircraft eventually settled approximately at:
+
+    phi ~= -0.032 rad
+
+which is approximately:
+
+    phi ~= -1.8 deg
+
+At the same time:
+
+    roll rate p -> 0
+
+Therefore the aircraft was no longer continuously rolling. It had stabilized
+at a small nonzero bank angle.
+
+Because a nonzero bank angle creates a horizontal component of lift, the
+aircraft entered a slow coordinated turn.
+
+The measured behavior was approximately:
+
+    phi  ~= -0.032 rad
+    p    ~= 0 rad/s
+    beta ~= approximately 0 rad
+    r    ~= -0.006 rad/s
+
+The sideslip being approximately zero showed that this was not primarily a
+rudder/sideslip problem.
+
+The yaw rate was consistent with a shallow coordinated turn produced by the
+persistent bank angle.
+
+-------------------------------------------------------------------------------
+28.3 — WHY THE PROPORTIONAL CONTROLLER LEFT A STEADY BANK ERROR
+-------------------------------------------------------------------------------
+
+The proportional controller was:
+
+    delta_a = -K_phi * phi
+
+A pure proportional controller can leave a steady-state error when the plant
+requires a nonzero steady control input to maintain the desired equilibrium.
+
+In this case, suppose the aircraft requires some nonzero aileron bias to remain
+wings-level because of the nonlinear aircraft dynamics and lateral coupling.
+
+For the proportional controller to generate that nonzero aileron command, it
+must have:
+
+    phi != 0
+
+because:
+
+    delta_a = -K_phi * phi
+
+Therefore the controller can settle at:
+
+    phi_ss != 0
+
+while still producing:
+
+    delta_a_ss != 0
+
+This explains the observed condition:
+
+    persistent bank
+        |
+        v
+    horizontal lift component
+        |
+        v
+    nonzero yaw rate
+        |
+        v
+    continuously changing heading
+        |
+        v
+    aircraft slowly circles.
+
+The proportional loop had therefore solved the original instability problem
+but still had a steady-state regulation error.
+
+-------------------------------------------------------------------------------
+28.4 — DIAGNOSTIC MEASUREMENTS USED BEFORE CHANGING THE CONTROLLER
+-------------------------------------------------------------------------------
+
+The lateral behavior was diagnosed using four important signals:
+
+    1. Aileron command
+    2. Bank angle phi
+    3. Sideslip beta
+    4. Yaw rate r
+
+A roll-rate measurement p was then added to distinguish:
+
+    "the aircraft is still rolling"
+
+from:
+
+    "the aircraft has stopped rolling but remains banked."
+
+The observed results were:
+
+    Aileron:
+        settled around a small nonzero value
+
+    phi:
+        settled around -0.032 rad
+
+    beta:
+        converged close to zero
+
+    r:
+        settled around -0.006 rad/s
+
+    p:
+        converged essentially to zero
+
+This established the actual physical situation:
+
+    p ~= 0
+        means no continuing roll motion
+
+    phi != 0
+        means the aircraft remains banked
+
+    beta ~= 0
+        means the aircraft is approximately coordinated
+
+    r != 0
+        means the aircraft continues turning
+
+Therefore adding an arbitrary constant rudder command would not have addressed
+the root problem.
+
+The required correction was to eliminate the steady-state bank-angle error.
+
+-------------------------------------------------------------------------------
+28.5 — FINAL PI WING-LEVELER
+-------------------------------------------------------------------------------
+
+The proportional wing-leveler was upgraded to a PI controller.
+
+The final tested control law is:
+
+    delta_a =
+        sat(
+            -0.5 * phi
+            -0.01 * integral(phi)
+        )
+
+or equivalently:
+
+    delta_a =
+        sat(
+            -K_p * phi
+            -K_i * integral(phi)
+        )
+
+with:
+
+    K_p = 0.5
+
+    K_i = 0.01
+
+The integral term is the accumulated bank-angle error:
+
+    integral(phi)
+        =
+    integral from 0 to t of phi(t) dt
+
+Therefore the complete controller is:
+
+    phi
+     |
+     +----------------------+
+     |                      |
+     v                      v
+    Gain -0.5          Integrator
+     |                      |
+     |                   Gain -0.01
+     |                      |
+     +----------+-----------+
+                |
+                v
+          Aileron command
+                |
+                v
+          Saturation [-1,+1]
+                |
+                v
+             JSBSim
+                |
+                v
+           C172P aircraft
+                |
+                v
+                phi
+                |
+                +------ feedback
+
+The negative signs are intentional.
+
+If the aircraft develops a positive bank error:
+
+    phi > 0
+
+the proportional contribution is negative:
+
+    -0.5 * phi < 0
+
+and the integral contribution accumulates in the corrective direction.
+
+If a small bank error persists, the integral term continues to build the
+required corrective aileron bias until the steady-state bank error is removed.
+
+-------------------------------------------------------------------------------
+28.6 — WHY THE INTEGRAL TERM SOLVES THE OBSERVED PROBLEM
+-------------------------------------------------------------------------------
+
+The key difference is:
+
+PROPORTIONAL ONLY:
+
+    delta_a = -K_p * phi
+
+A persistent nonzero aileron requirement forces:
+
+    phi_ss != 0
+
+PI:
+
+    delta_a =
+        -K_p * phi
+        -K_i * integral(phi)
+
+Now the controller can provide a nonzero steady aileron contribution through
+the integral state even when:
+
+    phi -> 0
+
+Therefore the aircraft no longer needs to remain banked simply to generate
+the corrective aileron command.
+
+The desired steady condition becomes:
+
+    phi -> 0
+
+while the final aileron command is allowed to settle at whatever small value
+is required by the nonlinear plant.
+
+This is an important controls principle:
+
+    The objective is not necessarily:
+        aileron -> 0
+
+    The objective is:
+        bank-angle error -> 0
+
+A nonzero steady actuator command can be perfectly valid if it is required to
+maintain the desired equilibrium.
+
+-------------------------------------------------------------------------------
+28.7 — RESULT OF THE PI MODIFICATION
+-------------------------------------------------------------------------------
+
+The PI modification was tested in the nonlinear JSBSim + Simulink model.
+
+The aircraft changed from:
+
+    proportional wing-leveler
+        |
+        v
+    phi ~= -0.032 rad
+        |
+        v
+    r ~= -0.006 rad/s
+        |
+        v
+    heading continuously changes
+        |
+        v
+    slow circular flight
+
+to:
+
+    PI wing-leveler
+        |
+        v
+    phi -> approximately 0
+        |
+        v
+    r -> approximately 0
+        |
+        v
+    heading becomes approximately constant
+        |
+        v
+    aircraft flies straight.
+
+This is the final validated lateral behavior for the current project version.
+
+The PI addition therefore removed the steady-state bank error that caused the
+previous circular flight.
+
+-------------------------------------------------------------------------------
+28.8 — WHY RUDDER WAS NOT ADDED
+-------------------------------------------------------------------------------
+
+A rudder feedback controller was initially considered because the aircraft was
+visibly turning.
+
+However, the measured sideslip was already approximately zero.
+
+Therefore:
+
+    beta ~= 0
+
+while:
+
+    phi != 0
+    r != 0
+
+This showed that the aircraft was approximately coordinated but banked.
+
+The root problem was therefore not primarily:
+
+    excessive sideslip
+
+but:
+
+    persistent bank-angle error.
+
+Consequently, the final implementation keeps:
+
+    rudder_command = 0
+
+and uses the PI aileron loop to regulate bank angle.
+
+This is deliberately a limited lateral stabilization layer rather than a full
+lateral-directional autopilot.
+
+-------------------------------------------------------------------------------
+28.9 — FINAL IMPLEMENTED RELATION
+-------------------------------------------------------------------------------
+
+The final bank-control relation is:
+
+    aileron_command =
+        sat(
+            -0.5 * phi
+            -0.01 * integral(phi),
+            -1,
+            +1
+        )
+
+where:
+
+    phi:
+        bank angle in radians
+
+    0.5:
+        proportional bank-feedback gain
+
+    0.01:
+        integral bank-feedback gain
+
+    integral(phi):
+        accumulated bank-angle error
+
+    [-1,+1]:
+        final aileron command saturation.
+
+This is the final implementation that produced straight flight in the
+nonlinear simulation.
+
+-------------------------------------------------------------------------------
+28.10 — CONTROL-SYSTEM INTERPRETATION
+-------------------------------------------------------------------------------
+
+The PI wing-leveler should be described as:
+
+    a lateral bank-stabilization / wings-level control loop.
+
+It should NOT be described as:
+
+    a full lateral-directional autopilot.
+
+The current controller does not explicitly command or regulate:
+
+    heading psi
+
+and it does not implement a full coordinated-turn/heading controller.
+
+Its responsibility is narrower:
+
+    regulate phi toward zero.
+
+This is appropriate for the current altitude-hold demonstration because the
+main objective is to maintain altitude while preventing lateral bank from
+becoming an additional source of altitude error.
+
+================================================================================
+
+================================================================================
+PART 29 — RUDDER
+================================================================================
+
+The final SLX contains:
+
+    Rudder
+
+as a Constant block.
+
+Value:
+
+    0
+
+Therefore:
+
+    rudder_command = 0
+
+and this feeds:
+
+    JSBSim input 4.
+
+No rudder feedback controller is currently implemented.
+
+================================================================================
+PART 30 — FLAPS, GEAR, MIXTURE, RUNSET
+================================================================================
+
+Current auxiliary commands:
+
+    Flaps:
+        0
+
+    Gear:
+        0
+
+    Rudder:
+        0
+
+The Concatenate vector also contains:
+
+    Mixture
+    Runset
+
+These are part of the S-Function input interface and must remain correctly
+positioned in the eight-element input vector.
+
+Do not reorder these just because only the first four channels are used for
+flight control.
+
+================================================================================
+PART 31 — CURRENT FINAL SLX SIGNAL FLOW
+================================================================================
+
+The complete current architecture can be mentally reduced to:
+
+                    4000 ft
+                       |
+                       v
+              ALTITUDE ERROR
+                       |
+                       v
+                 OUTER PID
+                       |
+                       v
+                delta_theta_cmd
+                       |
+                       v
+          + theta_trim (0.0026556289)
+                       |
+                       v
+                   theta_cmd
+                       |
+                       v
+              theta_actual - theta_cmd
+                       |
+                       v
+                  delta_theta
+                       |
+                       |
+U_actual --> U - 184.999 --> delta_u
+                       |
+alpha --> alpha - trim --> delta_alpha
+                       |
+q --------------------> q
+                       |
+                       v
+             [du, da, dtheta, q]
+                       |
+                       v
+                      Mux
+                       |
+                       v
+                     K*x
+                       |
+                       v
+                    -K*x
+                       |
+                       v
+               + elevator trim
+                       |
+                       v
+               elevator saturation
+                       |
+                       v
+                 JSBSim Elevator
+
+
+Meanwhile:
+
+    U_actual
+       |
+       v
+    184.999 - U
+       |
+       v
+    Speed PID
+       |
+       v
+    + throttle trim
+       |
+       v
+    throttle saturation
+       |
+       v
+    JSBSim Throttle
+
+
+And:
+
+    phi
+     |
+     +--------------------+
+     |                    |
+     v                    v
+    -0.5             Integrator
+                          |
+                       -0.01
+                          |
+     +--------------------+
+     |
+     v
+    aileron saturation
+     |
+     v
+    JSBSim Aileron
+
+
+And:
+
+    rudder = 0
+
+All four primary control channels are assembled into the JSBSim input vector.
+
+================================================================================
+PART 32 — WHAT CAUSED THE EARLY CONFUSION
+================================================================================
+
+Several problems were not failures of control theory; they were interface and
+model-definition ambiguities.
+
+1. STATE ORDER CONFUSION
+------------------------
+
+Earlier configurations alternated between:
+
+    [du, da, q, theta]
+
+and:
+
+    [du, da, theta, q]
+
+The final verified controller requires:
+
+    [du, da, dtheta, q]
+
+This matters because K is not interchangeable under a state permutation.
+
+For example:
+
+    K3 = -7.4923
+
+belongs to:
+
+    delta_theta
+
+and:
+
+    K4 = -2.1182
+
+belongs to:
+
+    q
+
+Swapping them changes the controller.
+
+2. ABSOLUTE VS PERTURBATION STATES
+-----------------------------------
+
+Using:
+
+    theta
+
+instead of:
+
+    theta - theta_cmd
+
+would cause the inner controller to regulate the wrong quantity.
+
+Likewise:
+
+    U
+
+instead of:
+
+    U - U_trim
+
+would be inconsistent with the linearized model.
+
+3. TRIM ELEVATOR CONFUSION
+---------------------------
+
+The command:
+
+    elevator-cmd-norm = 0
+
+was initially easy to misinterpret.
+
+The aircraft nevertheless had:
+
+    elevator-pos-rad ~= 0.0811 rad
+
+because pitch trim was active.
+
+Therefore the correct architecture must distinguish:
+
+    trim command
+
+from:
+
+    controller perturbation.
+
+4. STARTING IN MID-AIR
+----------------------
+
+Starting at:
+
+    4000 ft
+
+does not itself make the simulation wrong.
+
+It is intentional when testing a trim-point controller.
+
+The purpose is to start close to the equilibrium and evaluate regulation.
+
+A takeoff simulation would answer a different question.
+
+5. OPEN-LOOP DIVERGENCE
+-----------------------
+
+Seeing altitude fall with:
+
+    K = 0
+
+does not prove that the model is broken.
+
+It demonstrates that active feedback is required.
+
+6. LINEAR VS NONLINEAR RESULTS
+------------------------------
+
+The linear model was stable.
+
+The nonlinear JSBSim result showed larger deviations.
+
+This does not contradict the linear result.
+
+The linear model is local.
+
+7. XML VERSION PROLIFERATION
+-----------------------------
+
+Many diagnostic XML variants were created during troubleshooting.
+
+This became a major source of confusion.
+
+The solution is to separate:
+
+    diagnostic XML
+
+from:
+
+    final simulation XML
+
+and never silently switch between them.
+
+================================================================================
+PART 33 — IMPORTANT DIAGNOSTIC TESTS THAT SHOULD NOT BE REPEATED
+================================================================================
+
+The following tests already established useful facts.
+
+TEST A:
+    Native longitudinal trim.
+
+Result:
+    PASS.
+
+Meaning:
+    4000-ft / 185-ft/s equilibrium exists.
+
+TEST B:
+    Native linearization immediately after trim.
+
+Result:
+    PASS.
+
+Meaning:
+    JSBSim can provide the local linear model.
+
+TEST C:
+    Elevator perturbation.
+
+Result:
+    PASS.
+
+Meaning:
+    Elevator command path affects the aircraft.
+
+TEST D:
+    Controllability.
+
+Result:
+    rank = 4 / 4.
+
+Meaning:
+    Four-state longitudinal model is controllable through the selected input.
+
+TEST E:
+    DLQR pole check.
+
+Result:
+    all |p| < 1.
+
+Meaning:
+    Linear discrete controller is mathematically stable.
+
+TEST F:
+    40-second linear closed-loop simulation.
+
+Result:
+    states converge toward zero.
+
+Meaning:
+    K and the state ordering are internally consistent in the linear model.
+
+Do not repeatedly rerun these unless the underlying A/B/state definitions are
+changed.
+
+================================================================================
+PART 34 — WHAT HAS NOT BEEN PROVEN
+================================================================================
+
+The following are NOT established merely by the previous tests:
+
+    1. Global nonlinear stability.
+
+    2. Robustness to large altitude errors.
+
+    3. Robustness to severe wind.
+
+    4. Stall recovery.
+
+    5. Full lateral-directional stability.
+
+    6. Full actuator dynamics.
+
+    7. Sensor noise robustness.
+
+    8. Flight-test readiness.
+
+    9. DO-178C certification compliance.
+
+10. Gain scheduling necessity or sufficiency.
+
+11. Full 6-DOF controller adequacy.
+
+This distinction is essential for future documentation.
+
+================================================================================
+PART 35 — IMPORTANT CORRECTION ABOUT DO-178C
+================================================================================
+
+An earlier document described the model as "DO-178C compliant".
+
+That statement should NOT be retained as a certification claim.
+
+Using Simulink, JSBSim, LQR, PID, or Model-Based Design does not automatically
+make a project DO-178C compliant.
+
+A true DO-178C development would require the appropriate lifecycle,
+requirements traceability, verification evidence, configuration management,
+tool qualification considerations, structural coverage, reviews, and many
+other certification activities.
+
+The correct statement for this project is:
+
+    "The project is developed with awareness of aerospace Model-Based
+     Development and DO-178C concepts."
+
+It should NOT be documented as:
+
+    "DO-178C compliant"
+
+unless an actual certification process has been completed.
+
+================================================================================
+PART 36 — CURRENT FINAL FILES
+================================================================================
+
+The following are the most important artifacts.
+
+1.
+    c172_trim_linearize_final.xml
+
+Role:
+    Native JSBSim trim + linearization source.
+
+Output:
+    c172_lin.sce
+
+2.
+    c172_trimmed_elevator_perturbation_v3.xml
+
+Role:
+    Verified elevator perturbation diagnostic.
+
+3.
+    c172p_cruise_init.xml
+
+Role:
+    Initializes the aircraft near the verified trim condition.
+
+4.
+    c172_cruise_8K_FINAL.xml
+
+Role:
+    Main JSBSim run environment used by the final Simulink architecture.
+
+5.
+    c172_simulink.xml
+
+Role:
+    JSBSim S-Function I/O configuration.
+
+6.
+    C172_DLQR_4state_FINAL_VERIFIED.m
+
+Role:
+    Reconstructs the verified DLQR design and generates:
+
+        C172_DLQR_4state_FINAL.mat
+
+7.
+    C172_DLQR_LINEAR_CLOSED_LOOP_TEST_SELF_CONTAINED_VERIFIED.m
+
+Role:
+    Independent 40-second linear DLQR verification.
+
+8.
+    C172_DLQR_4state_FINAL.mat
+
+Role:
+    Stores A, B, Ad, Bd, K, Q, R, Ts, and trim constants.
+
+9.
+    JSBSim_DLQR_PID_OuterLoop_AltitudeHold_c172p(2).slx
+
+Role:
+    Current final Simulink implementation supplied with this documentation.
+
+This SLX is the authoritative source for the current wiring.
+
+================================================================================
+PART 37 — FINAL SLX PARAMETERS EXTRACTED DIRECTLY FROM THE ATTACHED MODEL
+================================================================================
+
+S-Function:
+
+    FunctionName:
+        JSBSim_SFunction
+
+    Parameters:
+        'c172p',0.008333,1,
+        'scripts/c172_cruise_8K_FINAL',
+        'c172p_cruise_init',
+        'c172_simulink'
+
+Outer altitude PID:
+
+    P = 0.01
+    I = 0.0001
+    D = 0.001
+
+    Sample time = 0.008333 s
+
+    Saturation:
+        +0.2618
+        -0.1745
+
+    Anti-windup:
+        clamping
+
+Speed PID:
+
+    P = 0.01
+    I = 0.001
+    D = 0
+
+    Continuous-time PID block in the supplied SLX.
+
+    Saturation:
+        +0.26
+        -0.73
+
+    Anti-windup:
+        clamping
+
+DLQR:
+
+    K is a workspace matrix.
+
+    Expected verified value:
+
+        K = [0.0205 2.2685 -7.4923 -2.1182]
+
+Wing-leveler:
+
+    Controller:
+        PI
+
+    Proportional gain:
+        Kp = 0.5
+
+    Integral gain:
+        Ki = 0.01
+
+    Implemented relation:
+
+        aileron_command =
+            sat(-0.5*phi - 0.01*integral(phi), -1, +1)
+
+Elevator final saturation:
+
+    +1
+    -1
+
+Throttle final saturation:
+
+    +1
+     0
+
+Aileron final saturation:
+
+    +1
+    -1
+
+Trim constants:
+
+    theta_trim:
+        0.0026556289
+
+    alpha_trim:
+        0.0026556289
+
+    U_trim:
+        184.999
+
+    throttle_trim:
+        0.736296
+
+Elevator trim:
+    approximately 0.2021
+
+================================================================================
+PART 38 — CURRENT MODEL DOES NOT CONTAIN EVERYTHING DESCRIBED IN EARLIER
+MANUAL TEXT
+================================================================================
+
+This is important.
+
+The earlier written manual described adding:
+
+    Band-Limited White Noise for altitude
+
+    Band-Limited White Noise for q
+
+The attached final SLX does NOT contain those noise blocks.
+
+Therefore future documentation must not say:
+
+    "the current model includes measurement noise"
+
+unless the blocks are actually added.
+
+Similarly, earlier notes proposed different PID gains for some loops.
+
+The attached SLX is authoritative for the CURRENT implementation.
+
+Therefore:
+
+    written proposal
+        !=
+    current model
+
+when they disagree.
+
+================================================================================
+PART 39 — HOW TO RESTART THE PROJECT FROM ZERO
+================================================================================
+
+STEP 1 — VERIFY JSBSIM
+----------------------
+
+Confirm JSBSim executable:
+
+    D:\jsbsim-1.3.1\out\install\x64-Release\bin\JSBSim.exe
+
+Open Command Prompt:
+
+    cd /d D:\Controls\CTMS
+
+Do not work from an unrelated directory because relative paths such as:
+
+    scripts/...
+
+depend on the current working directory.
+
+STEP 2 — VERIFY TRIM
+--------------------
+
+Run:
+
+    "D:\jsbsim-1.3.1\out\install\x64-Release\bin\JSBSim.exe" ^
+      --script=scripts/c172_trim_linearize_final.xml
+
+Do not proceed if:
+
+    Trim successful
+
+is absent.
+
+Verify approximately:
+
+    altitude = 4000 ft
+    U        = 185 ft/s
+    alpha    = 0.0026556 rad
+    theta    = 0.0026556 rad
+    q        = 0
+
+STEP 3 — GENERATE LINEARIZATION
+--------------------------------
+
+Inspect:
+
+    c172_lin.sce
+
+Verify that the state/input model corresponds to the four-state longitudinal
+model.
+
+STEP 4 — RUN MATLAB DLQR DESIGN
+--------------------------------
+
+Run:
+
+    C172_DLQR_4state_FINAL_VERIFIED.m
+
+Confirm:
+
+    K = [0.0205 2.2685 -7.4923 -2.1182]
+
+Confirm:
+
+    rank = 4 / 4
+
+Confirm:
+
+    all pole magnitudes < 1
+
+STEP 5 — RUN INDEPENDENT LINEAR TEST
+-------------------------------------
+
+Run:
+
+    C172_DLQR_LINEAR_CLOSED_LOOP_TEST_SELF_CONTAINED_VERIFIED.m
+
+Confirm convergence.
+
+Do not move to nonlinear Simulink troubleshooting if the linear test fails.
+
+STEP 6 — OPEN THE CURRENT SLX
+------------------------------
+
+Use:
+
+    JSBSim_DLQR_PID_OuterLoop_AltitudeHold_c172p(2).slx
+
+Make sure MATLAB has:
+
+    K
+
+in the workspace.
+
+STEP 7 — VERIFY S-FUNCTION PARAMETERS
+--------------------------------------
+
+The S-Function should show exactly:
+
+    'c172p',0.008333,1,
+    'scripts/c172_cruise_8K_FINAL',
+    'c172p_cruise_init',
+    'c172_simulink'
+
+Do not silently substitute:
+
+    c172_ZERO_ELEVATOR_DIAGNOSTIC
+
+or:
+
+    c172_simulink_SAFE_13PORT
+
+into the final model.
+
+Those were diagnostic configurations from the development process.
+
+STEP 8 — VERIFY MUX
+-------------------
+
+Before running:
+
+    Mux input 1 = delta_u
+
+    Mux input 2 = delta_alpha
+
+    Mux input 3 = delta_theta
+
+    Mux input 4 = q
+
+This is non-negotiable.
+
+STEP 9 — VERIFY CONTROL LAW
+----------------------------
+
+The final elevator path must conceptually be:
+
+    x
+      |
+      v
+    K*x
+      |
+      v
+    -K*x
+      |
+      v
+    + elevator trim
+      |
+      v
+    saturation
+      |
+      v
+    JSBSim elevator input
+
+STEP 10 — VERIFY ALTITUDE LOOP
+------------------------------
+
+Conceptually:
+
+    e_h = 4000 - h
+
+    delta_theta_cmd = PID(e_h)
+
+    theta_cmd = theta_trim + delta_theta_cmd
+
+    delta_theta = theta_actual - theta_cmd
+
+Then feed:
+
+    delta_theta
+
+into Mux input 3.
+
+STEP 11 — VERIFY THROTTLE LOOP
+------------------------------
+
+Conceptually:
+
+    e_u = 184.999 - U
+
+    delta_throttle = PID(e_u)
+
+    throttle = throttle_trim + delta_throttle
+
+    throttle = saturation(throttle,0,1)
+
+STEP 12 — VERIFY BANK LOOP
+---------------------------
+
+Conceptually:
+
+    aileron = saturation(-0.5*phi,-1,+1)
+
+STEP 13 — RUN
+-------------
+
+Run the simulation for enough time to evaluate:
+
+    initial transient
+    trim recovery
+    altitude regulation
+    airspeed
+    pitch
+    pitch rate
+    elevator
+    throttle
+    bank
+
+Do not judge the system from the first 5 seconds only.
+
+================================================================================
+PART 40 — WHAT TO LOG IN FUTURE RUNS
+================================================================================
+
+Always log:
+
+    altitude h
+    altitude error
+    U
+    delta_u
+    alpha
+    delta_alpha
+    theta
+    theta_cmd
+    delta_theta
+    q
+    elevator command
+    physical elevator position
+    throttle command
+    aileron command
+    phi
+    DLQR output
+    outer PID output
+    speed PID output
+
+The most useful diagnostic plots are:
+
+    1. Altitude vs time
+    2. Altitude error vs time
+    3. U vs time
+    4. theta and theta_cmd on one plot
+    5. q vs time
+    6. elevator command vs time
+    7. physical elevator position vs time
+    8. alpha vs time
+    9. phi vs time
+   10. throttle command vs time
+
+The reason is to distinguish:
+
+    altitude problem
+
+from:
+
+    pitch problem
+
+from:
+
+    speed problem
+
+from:
+
+    actuator saturation
+
+from:
+
+    lateral bank problem.
+
+================================================================================
+PART 41 — HOW TO DIAGNOSE A FUTURE ALTITUDE FAILURE
+================================================================================
+
+If altitude falls:
+
+DO NOT immediately change K.
+
+First ask:
+
+    1. Is theta_cmd changing?
+    2. Is theta_actual following theta_cmd?
+    3. Is q responding correctly?
+    4. Is elevator command changing?
+    5. Is physical elevator position changing?
+    6. Is U falling?
+    7. Is throttle increasing?
+    8. Is phi becoming large?
+    9. Is the elevator saturated?
+   10. Is the aircraft leaving the linearization region?
+
+Interpretation:
+
+If:
+
+    theta_cmd changes
+
+but:
+
+    elevator does not change
+
+then the inner-loop wiring is wrong.
+
+If:
+
+    elevator changes
+
+but:
+
+    theta does not respond
+
+then investigate actuator sign, trim, JSBSim input mapping, or plant behavior.
+
+If:
+
+    theta tracks
+
+but:
+
+    altitude still falls
+
+then investigate:
+
+    flight-path angle
+    airspeed
+    vertical velocity
+    energy management.
+
+If:
+
+    U falls severely
+
+then the altitude loop may be demanding too much pitch without enough
+throttle response.
+
+If:
+
+    phi grows
+
+then lateral-directional behavior may be contributing to altitude loss.
+
+If:
+
+    all inner-loop states remain small
+
+but nonlinear altitude drifts slowly,
+
+then the issue may be outer-loop tuning, trim mismatch, or nonlinear
+steady-state error.
+
+================================================================================
+PART 42 — WHY THE C172P MODEL WARNING SHOULD NOT BE IGNORED
+================================================================================
+
+The JSBSim terminal output identifies the aircraft model as a BETA release
+and warns:
+
+    "This aircraft model is a BETA release!"
+
+and:
+
+    "This aircraft model probably will not fly as expected."
+
+This does NOT mean the project is invalid.
+
+It means the result should be interpreted as:
+
+    simulation/model-development evidence
+
+rather than:
+
+    proof of real-aircraft behavior.
+
+The model can still be useful for:
+
+    control architecture development
+    linearization
+    controller design
+    software-in-the-loop
+    signal-flow verification
+    nonlinear simulation experiments
+
+But the documentation should preserve the warning.
+
+================================================================================
+PART 43 — WHAT WAS ACTUALLY ACHIEVED
+================================================================================
+
+The project successfully moved through these engineering layers:
+
+    JSBSim installation
+        |
+        v
+    C172P aircraft model
+        |
+        v
+    Initial operating condition
+        |
+        v
+    Native longitudinal trim
+        |
+        v
+    Verified 4000-ft trim
+        |
+        v
+    Elevator perturbation test
+        |
+        v
+    Native linearization
+        |
+        v
+    A/B extraction
+        |
+        v
+    Discretization
+        |
+        v
+    Controllability verification
+        |
+        v
+    DLQR design
+        |
+        v
+    Closed-loop pole verification
+        |
+        v
+    40-second linear convergence test
+        |
+        v
+    Simulink integration
+        |
+        v
+    Outer altitude PID
+        |
+        v
+    Speed/energy PID
+        |
+        v
+    Proportional bank stabilization
+        |
+        v
+    PI bank stabilization
+        |
+        v
+    Nonlinear JSBSim simulation
+
+That is the actual engineering progression.
+
+================================================================================
+PART 44 — CORE LESSONS FROM THE DEVELOPMENT
+================================================================================
+
+LESSON 1:
+    Trim is not the same thing as control.
+
+LESSON 2:
+    A linear controller must be built around the exact state definitions used
+    during linearization.
+
+LESSON 3:
+    State order is part of the controller definition.
+
+LESSON 4:
+    A controller gain cannot be separated from its state vector.
+
+LESSON 5:
+    Trim actuator values must be distinguished from controller perturbations.
+
+LESSON 6:
+    Linear stability does not imply nonlinear global stability.
+
+LESSON 7:
+    Open-loop aircraft divergence is not automatically a JSBSim bug.
+
+LESSON 8:
+    Starting at 4000 ft is not inherently wrong. It is a trim-point test.
+
+LESSON 9:
+    The altitude loop, pitch loop, and energy loop have different jobs.
+
+LESSON 10:
+    Diagnostic XML files must not be casually reused as final simulation
+    scripts.
+
+LESSON 11:
+    The current SLX is more authoritative than an old textual wiring diagram.
+
+LESSON 12:
+    Every future experiment must state exactly which XML, SLX, MATLAB file,
+    gain, state order, and input mapping it uses.
+
+================================================================================
+PART 45 — FINAL MENTAL MODEL
+================================================================================
+
+The easiest way to remember the entire project is:
+
+    JSBSim
+        =
+    nonlinear aircraft
+
+    Trim
+        =
+    find an equilibrium
+
+    Linearization
+        =
+    approximate aircraft locally around equilibrium
+
+    DLQR
+        =
+    stabilize the four longitudinal perturbation states
+
+    Outer altitude PID
+        =
+    tell the pitch loop what pitch perturbation is needed to correct altitude
+
+    Speed PID
+        =
+    manage kinetic energy / throttle
+
+    Bank PI loop
+        =
+    drive bank angle toward zero and remove the steady-state bank error that
+    previously caused a slow coordinated turn
+
+    Simulink
+        =
+    controller implementation and signal routing
+
+    JSBSim S-Function
+        =
+    nonlinear plant interface
+
+The final loop is therefore:
+
+    altitude error
+        |
+        v
+    altitude PID
+        |
+        v
+    theta command
+        |
+        v
+    4-state perturbation calculation
+        |
+        v
+    DLQR
+        |
+        v
+    elevator
+        |
+        v
+    JSBSim
+        |
+        +------> U ------> speed PID ------> throttle
+        |
+        +------> phi ----> bank controller -> aileron
+        |
+        +------> h ------> altitude PID
+        |
+        +------> theta,q,alpha ---> DLQR
+
+This is the core architecture.
+
+================================================================================
+PART 46 — FINAL RESTART CHECKLIST
+================================================================================
+
+Before modifying anything:
+
+    [ ] Confirm JSBSim executable path.
+    [ ] Confirm current working directory is D:\Controls\CTMS.
+    [ ] Confirm c172_trim_linearize_final.xml.
+    [ ] Confirm successful trim.
+    [ ] Confirm 4000-ft / 185-ft/s operating point.
+    [ ] Confirm c172_lin.sce.
+    [ ] Confirm A and B.
+    [ ] Confirm Ts = 0.008333.
+    [ ] Confirm Ad and Bd.
+    [ ] Confirm controllability rank = 4.
+    [ ] Confirm K.
+    [ ] Confirm closed-loop poles are inside unit circle.
+    [ ] Confirm 40-second linear test converges.
+    [ ] Open the attached final SLX.
+    [ ] Confirm S-Function parameters.
+    [ ] Confirm State Demux.
+    [ ] Confirm Pilot Demux.
+    [ ] Confirm Control Demux.
+    [ ] Confirm Mux order:
+            1 = delta_u
+            2 = delta_alpha
+            3 = delta_theta
+            4 = q
+    [ ] Confirm elevator trim.
+    [ ] Confirm throttle trim.
+    [ ] Confirm theta trim.
+    [ ] Confirm alpha trim.
+    [ ] Confirm altitude PID.
+    [ ] Confirm speed PID.
+    [ ] Confirm PI bank controller:
+            Kp = 0.5
+            Ki = 0.01
+            aileron = sat(-0.5*phi - 0.01*integral(phi), -1, +1)
+    [ ] Confirm JSBSim input vector order.
+    [ ] Run nonlinear test.
+    [ ] Record all relevant states.
+    [ ] Only then change one design variable.
+
+================================================================================
+PART 47 — FINAL WARNING AGAINST REPEATING THE OLD WORKFLOW
+================================================================================
+
+Do not return to the old pattern:
+
+    run simulation
+        |
+        see altitude falling
+        |
+        change Mux
+        |
+        change XML
+        |
+        change K
+        |
+        change PID
+        |
+        change trim
+        |
+        run again
+        |
+        become unsure which change caused the effect
+
+That destroys diagnostic information.
+
+Instead:
+
+    Define hypothesis
+        |
+        v
+    Identify one subsystem
+        |
+        v
+    Choose one test
+        |
+        v
+    Freeze everything else
+        |
+        v
+    Run
+        |
+        v
+    Compare measured signal against expected signal
+        |
+        v
+    Decide pass/fail
+        |
+        v
+    Only then modify the next subsystem
+
+This is the correct way to finish the remaining nonlinear validation.
+
+================================================================================
+PART 48 — CURRENT LATERAL-CONTROL STATUS AFTER PI UPDATE
+================================================================================
+
+The lateral-control portion of the project has now progressed through three
+states:
+
+    STATE 1 — NO AILERON FEEDBACK
+        aileron = 0
+
+        Result:
+            uncontrolled lateral/roll behavior could develop, leading to
+            altitude loss and eventual instability.
+
+    STATE 2 — PROPORTIONAL WING-LEVELER
+        aileron = sat(-0.5*phi, -1, +1)
+
+        Result:
+            roll behavior became stable, but the aircraft settled at
+            approximately:
+
+                phi ~= -0.032 rad
+
+            with approximately:
+
+                beta ~= 0
+                p ~= 0
+                r ~= -0.006 rad/s
+
+            This produced a slow coordinated turn.
+
+    STATE 3 — FINAL PI WING-LEVELER
+        aileron =
+            sat(-0.5*phi - 0.01*integral(phi), -1, +1)
+
+        Result:
+            the steady-state bank error was removed and the aircraft now flies
+            approximately straight instead of continuously circling.
+
+The final interpretation is:
+
+    P term:
+        provides immediate bank stabilization.
+
+    I term:
+        removes persistent bank-angle error by accumulating the error and
+        generating the required steady corrective aileron bias.
+
+The final PI loop is therefore part of the current validated nonlinear
+altitude-hold architecture.
+
+The current lateral-control scope remains intentionally limited:
+
+    regulated variable:
+        bank angle phi
+
+    actuator:
+        aileron
+
+    rudder:
+        fixed at zero
+
+    heading:
+        not explicitly controlled
+
+This should be described accurately in future portfolio documentation.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

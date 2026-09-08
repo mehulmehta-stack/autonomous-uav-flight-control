@@ -1,0 +1,10 @@
+LATERAL GAIN-SCHEDULED CONTROLLER VALIDATION
+=============================================
+Disturbance: 10 deg initial bank angle at t=0, 3 trim airspeeds.
+GPS_Validity left at default (outage active t=25-35s) -- not isolated
+for this run; a transient may appear in that window, unrelated to
+the roll disturbance itself.
+
+low     | final phi = -0.2767 deg | max |aileron| =   3.38 deg
+cruise  | final phi = -0.0957 deg | max |aileron| =   1.25 deg
+high    | final phi = -0.2994 deg | max |aileron| =   1.62 deg

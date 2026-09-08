@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<initialize name="c172_cruise">
+  <altitude unit="FT">3000.0</altitude>
+  <vt unit="FT/SEC">185.0</vt>
+  <gamma unit="DEG">0.0</gamma>
+  <alpha unit="RAD">0.0026556289</alpha>
+  <theta unit="RAD">0.0026556289</theta>
+  <latitude unit="DEG">47.0</latitude>
+  <longitude unit="DEG">-122.0</longitude>
+  <phi unit="DEG">0.0</phi>
+  <psi unit="DEG">225.0</psi>
+  <beta unit="DEG">0.0</beta>
+</initialize>

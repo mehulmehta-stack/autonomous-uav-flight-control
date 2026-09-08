@@ -1,0 +1,6 @@
+conda create -n Controls_EKFenv
+conda activate Controls_EKFenv / conda deactivate
+conda install numpy matplotlib
+conda list
+python D:\Controls\CTMS\EKF\python_attitude_ekf.py
+python D:\Controls\CTMS\EKF\gps_ekf_corrected.py
