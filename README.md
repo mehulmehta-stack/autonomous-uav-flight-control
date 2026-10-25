@@ -1,4 +1,4 @@
-# Autonomous UAV Flight Control — C172P
+# Autonomous UAV Flight Control - C172P
 
 A fixed-wing flight control and navigation stack built around JSBSim/Simulink
 Software-in-the-Loop C172P model: gain-scheduled discrete LQR attitude control,
