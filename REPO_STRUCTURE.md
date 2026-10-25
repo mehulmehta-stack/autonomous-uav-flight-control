@@ -1,17 +1,17 @@
-# Repository Structure — Final (rewrite, post REQ-006/010 closure)
+# Repository Structure - Final (rewrite, post REQ-006/010 closure)
 
-`EKF/` is already sorted — not repeated in detail below, just confirmed
+`EKF/` is already sorted - not repeated in detail below, just confirmed
 unchanged. Everything else follows the same categorization logic as
 before:
 
-- **`docs/`** — requirements.md plus every verification/diagnostic
+- **`docs/`** - requirements.md plus every verification/diagnostic
   artifact, split into `checkpoint_evidence/` and `final_model_evidence/`.
-- **`controller/`** — what builds and configures the current, final
+- **`controller/`** - what builds and configures the current, final
   Simulink model. Now two `.slx` files, not one (see below).
-- **`generated_code/`** — the **final model's** generated C code only.
+- **`generated_code/`** - the **final model's** generated C code only.
   The checkpoint's old code was superseded, not archived.
-- **`EKF/`, `Guidance/`** — subsystem prototyping journeys.
-- **`history/`** — genuinely superseded stages only.
+- **`EKF/`, `Guidance/`** - subsystem prototyping journeys.
+- **`history/`** - genuinely superseded stages only.
 
 ```
 autonomous-uav-flight-control/
@@ -59,10 +59,10 @@ autonomous-uav-flight-control/
 │   ├── REQ007_30pct_uncertainty_results.mat                          (checkpoint, exact original values)
 │   ├── characterize_gps_reacquisition.m
 │   │     + GPS_Reacquisition_Characterization.png/.txt
-│   │     (justifies actuator dynamics — supporting evidence, not a numbered REQ)
+│   │     (justifies actuator dynamics - supporting evidence, not a numbered REQ)
 │   ├── add_imu_noise_logging.m, characterize_imu_noise.m + imu_noise_characterization_data.mat
 │   ├── reportderive.m, secondreport.m
-│   │     (architecture-inspection attempts — diary() bug confirmed broken)
+│   │     (architecture-inspection attempts - diary() bug confirmed broken)
 │   ├── verify_actuator_dynamics.m, run_model_advisor_C172P.m
 │   │     (right methodology, never run to completion)
 │   └── archive/
@@ -86,7 +86,7 @@ autonomous-uav-flight-control/
 │   ├── Autopilot.c, Autopilot_data.c                  ← FINAL model's generated code (only version kept)
 │   └── Autopilot.h, Autopilot_private.h, Autopilot_types.h, rtwtypes.h, rtmodel.h
 │
-├── EKF/                                                — already sorted, unchanged
+├── EKF/                                                - already sorted, unchanged
 │   ├── README.md
 │   ├── nav_ekf.py + 5 pngs
 │   ├── EKF_9State_Nav_Writeup.md
@@ -120,15 +120,15 @@ autonomous-uav-flight-control/
           version, which lives in controller/)
 ```
 
-## Duplicates — keep the first, drop the second
+## Duplicates - keep the first, drop the second
 
-- `validate_gain_schedule_v3.m` and `validate_gain_schedule_v32nd.m` — byte-identical.
-- `controls_standards_deep_read_DO178C_SCADE_Polyspace_1.txt` — identical to the one in `docs/`.
+- `validate_gain_schedule_v3.m` and `validate_gain_schedule_v32nd.m` - byte-identical.
+- `controls_standards_deep_read_DO178C_SCADE_Polyspace_1.txt` - identical to the one in `docs/`.
 
-## Not real — do not place anywhere
+## Not real - do not place anywhere
 
-- `validate_gain_schedule.m` (no suffix) and `generate_altitude_stress_ic.py` — both retracted earlier in this process; not genuine project files.
+- `validate_gain_schedule.m` (no suffix) and `generate_altitude_stress_ic.py` - both retracted earlier in this process; not genuine project files.
 
 ## Status
 
-All 17 requirements now verified against the final model — REQ-006/010 closed this pass. Only remaining work: finish sorting `.slx` files into the structure above (in progress, EKF done), then push.
+All 17 requirements now verified against the final model - REQ-006/010 closed this pass. Only remaining work: finish sorting `.slx` files into the structure above (in progress, EKF done), then push.
